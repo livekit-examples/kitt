@@ -33,7 +33,7 @@ type LiveGPT struct {
 func NewLiveGPT(config *config.Config) *LiveGPT {
 	return &LiveGPT{
 		config:       config,
-		roomService:  lksdk.NewRoomServiceClient(config.LiveKit.Host, config.LiveKit.ApiKey, config.LiveKit.SecretKey),
+		roomService:  lksdk.NewRoomServiceClient(config.LiveKit.Url, config.LiveKit.ApiKey, config.LiveKit.SecretKey),
 		keyProvider:  auth.NewSimpleKeyProvider(config.LiveKit.ApiKey, config.LiveKit.SecretKey),
 		doneChan:     make(chan struct{}),
 		closedChan:   make(chan struct{}),
@@ -42,7 +42,6 @@ func NewLiveGPT(config *config.Config) *LiveGPT {
 }
 
 func (s *LiveGPT) Start() error {
-
 	n := negroni.New()
 	n.Use(negroni.NewRecovery())
 	n.UseHandlerFunc(s.webhookHandler)
@@ -58,7 +57,7 @@ func (s *LiveGPT) Start() error {
 	}
 
 	go func() {
-		fmt.Printf("starting LiveGPT server")
+		fmt.Printf("starting LiveGPT server on port %d", s.config.Port)
 		if err := s.httpServer.Serve(httpListener); err != http.ErrServerClosed {
 			fmt.Printf("error starting server: %v", err)
 			s.Stop()
@@ -105,7 +104,8 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		p, err := ConnectGPTParticipant(s.config.LiveKit.Host, jwt)
+		fmt.Printf("connecting gpt participant to %v", s.config.LiveKit.Url)
+		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt)
 		if err != nil {
 			fmt.Printf("error connecting gpt participant: %v", err)
 			return

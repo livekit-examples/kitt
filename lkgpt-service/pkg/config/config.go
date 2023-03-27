@@ -7,7 +7,7 @@ import (
 )
 
 type LiveKitConfig struct {
-	Host      string `yaml:"host"`
+	Url       string `yaml:"url"`
 	ApiKey    string `yaml:"api_key"`
 	SecretKey string `yaml:"secret_key"`
 }

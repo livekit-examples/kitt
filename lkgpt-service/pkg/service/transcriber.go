@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -50,8 +51,8 @@ func NewTranscriber(track *webrtc.TrackRemote, speechClient *speech.Client) (*Tr
 	}
 
 	sampleBuilder := samplebuilder.New(200, &codecs.OpusPacket{}, rtpCodec.ClockRate)
-	oggReader, pw := io.Pipe()
-	oggWriter, err := oggwriter.NewWith(pw, rtpCodec.ClockRate, rtpCodec.Channels)
+	pr, pw := io.Pipe()
+	oggWriter, err := oggwriter.NewWith(bufio.NewWriter(pw), rtpCodec.ClockRate, rtpCodec.Channels)
 
 	if err != nil {
 		return nil, err
@@ -60,24 +61,24 @@ func NewTranscriber(track *webrtc.TrackRemote, speechClient *speech.Client) (*Tr
 	return &Transcriber{
 		track:         track,
 		sampleBuilder: sampleBuilder,
-		oggReader:     oggReader,
+		oggReader:     pr,
 		oggWriter:     oggWriter,
 		speechClient:  speechClient,
 	}, nil
 }
 
-func (t *Transcriber) start() {
+func (t *Transcriber) Start() {
 	ctx := context.Background()
-	buf := make([]byte, 1024)
 	rtpCodec := t.track.Codec()
 
 	for {
 		var wg sync.WaitGroup
-		ctx, _ := context.WithTimeout(ctx, MaxSpeechStreamDuration)
+		ctx, cancel := context.WithTimeout(ctx, MaxSpeechStreamDuration)
+		defer cancel()
 
 		speech, err := newSpeechStream(ctx, t.speechClient, rtpCodec)
 		if err != nil {
-			fmt.Println("failed to create a new speech stream %v", err)
+			fmt.Printf("failed to create a new speech stream %v", err)
 			return
 		}
 
@@ -86,9 +87,41 @@ func (t *Transcriber) start() {
 			defer wg.Done()
 
 			for {
-				err := t.forwardSpeech(buf, speech)
+				pkt, _, err := t.track.ReadRTP()
 				if err != nil {
-					fmt.Println("failed to forward speech %v", err)
+					fmt.Printf("failed to read RTP packet %v", err)
+					break
+				}
+
+				t.sampleBuilder.Push(pkt)
+
+				for _, p := range t.sampleBuilder.PopPackets() {
+					t.oggWriter.WriteRTP(p)
+				}
+
+			}
+		}()
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			buf := make([]byte, 1024)
+			for {
+				n, err := t.oggReader.Read(buf)
+				if err != nil {
+					fmt.Printf("Cannot read audio: %v", err)
+				}
+				if n > 0 {
+					if err := speech.Send(&speechpb.StreamingRecognizeRequest{
+						StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
+							AudioContent: buf[:n],
+						},
+					}); err != nil {
+						fmt.Printf("Cannot send audio: %v", err)
+						return
+					}
+
 				}
 			}
 		}()
@@ -101,7 +134,8 @@ func (t *Transcriber) start() {
 			for {
 				resp, err := speech.Recv()
 				if err != nil {
-					fmt.Println("Cannot stream results: %v", err)
+					fmt.Printf("Cannot stream results: %v", err)
+					continue
 				}
 
 				for _, result := range resp.Results {
@@ -113,36 +147,6 @@ func (t *Transcriber) start() {
 		wg.Wait()
 	}
 
-}
-
-// Forward audio samples to GCP STT
-func (t *Transcriber) forwardSpeech(buf []byte, speech speechpb.Speech_StreamingRecognizeClient) error {
-	pkt, _, err := t.track.ReadRTP()
-	if err != nil {
-		return err
-	}
-	t.sampleBuilder.Push(pkt)
-
-	for _, p := range t.sampleBuilder.PopPackets() {
-		t.oggWriter.WriteRTP(p)
-
-		n, err := t.oggReader.Read(buf)
-		if err != nil {
-			return err
-		}
-
-		if n > 0 {
-			if err := speech.Send(&speechpb.StreamingRecognizeRequest{
-				StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
-					AudioContent: buf[:n],
-				},
-			}); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
 }
 
 func newSpeechStream(ctx context.Context, speechClient *speech.Client, rtpCodec webrtc.RTPCodecParameters) (speechpb.Speech_StreamingRecognizeClient, error) {

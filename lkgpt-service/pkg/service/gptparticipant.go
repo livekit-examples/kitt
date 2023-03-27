@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	speech "cloud.google.com/go/speech/apiv1"
 	lksdk "github.com/livekit/server-sdk-go"
@@ -45,17 +46,19 @@ func ConnectGPTParticipant(url, token string) (*GPTParticipant, error) {
 }
 
 func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
-	// Transcribe the audio track
+	// transcribe the audio track
 	if track.Kind() != webrtc.RTPCodecTypeAudio {
 		return
 	}
 
 	transcriber, err := NewTranscriber(track, p.speechClient)
 	if err != nil {
+		fmt.Printf("error creating transcriber: %v", err)
 		return
 	}
 
-	go transcriber.start()
+	fmt.Printf("Starting transcription for %s", publication.SID())
+	go transcriber.Start()
 }
 
 func (p *GPTParticipant) Disconnect() {
