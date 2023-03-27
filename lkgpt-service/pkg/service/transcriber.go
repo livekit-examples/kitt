@@ -159,7 +159,11 @@ func newSpeechStream(ctx context.Context, speechClient *speech.Client, rtpCodec 
 	if err := stream.Send(&speechpb.StreamingRecognizeRequest{
 		StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
 			StreamingConfig: &speechpb.StreamingRecognitionConfig{
+				SingleUtterance: true,
+				InterimResults:  true,
 				Config: &speechpb.RecognitionConfig{
+					Model:             "command_and_search",
+					UseEnhanced:       true,
 					Encoding:          speechpb.RecognitionConfig_OGG_OPUS,
 					SampleRateHertz:   int32(rtpCodec.ClockRate),
 					AudioChannelCount: int32(rtpCodec.Channels),
