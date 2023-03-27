@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/urfave/cli"
 
 	"github.com/livekit-examples/livegpt/pkg/config"
+	"github.com/livekit-examples/livegpt/pkg/service"
 )
 
 func main() {
@@ -47,5 +50,15 @@ func runServer(c *cli.Context) error {
 		return err
 	}
 
-	return nil
+	server := service.NewLiveGPT(conf)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+
+	go func() {
+		sig := <-sigChan
+		fmt.Printf("exit requested, shutting down: %v", sig)
+		server.Stop()
+	}()
+
+	return server.Start()
 }
