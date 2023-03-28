@@ -70,77 +70,74 @@ func (t *Transcriber) OnTranscriptionReceived(f func(resp *speechpb.StreamingRec
 }
 
 func (t *Transcriber) Start() error {
+	// Create a new stream each 4 minutes
+loop:
+	for {
+		closeChan := make(chan struct{})
+		pr, pw := io.Pipe()
+		sb := samplebuilder.New(200, &codecs.OpusPacket{}, t.track.Codec().ClockRate)
+		oggReader, bpw := bufio.NewReader(pr), bufio.NewWriter(pw)
+		oggWriter, err := oggwriter.NewWith(bpw, t.track.Codec().ClockRate, t.track.Codec().Channels)
 
-	go func() {
-		// Create a new stream each 4 minutes
-	loop:
-		for {
-			closeChan := make(chan struct{})
-			pr, pw := io.Pipe()
-			sb := samplebuilder.New(200, &codecs.OpusPacket{}, t.track.Codec().ClockRate)
-			oggReader, bpw := bufio.NewReader(pr), bufio.NewWriter(pw)
-			oggWriter, err := oggwriter.NewWith(bpw, t.track.Codec().ClockRate, t.track.Codec().Channels)
-
-			if err != nil {
-				fmt.Printf("failed to create a new ogg writer %v", err)
-				return
-			}
-
-			speech, err := newSpeechStream(context.Background(), t.speechClient, t.language, t.track.Codec())
-			if err != nil {
-				fmt.Printf("failed to create a new speech stream %v", err)
-				return
-			}
-
-			cycleChan := make(chan struct{}) // closed when the stream is done
-			go func() {
-				wg := sync.WaitGroup{}
-				wg.Add(3)
-
-				go func() {
-					if err := t.readTrack(&wg, closeChan, sb, oggWriter); err != nil {
-						fmt.Printf("failed to read track %v", err)
-					}
-				}()
-
-				go func() {
-					if err := t.writeStream(&wg, speech, oggReader); err != nil {
-						fmt.Printf("failed to write stream %v", err)
-					}
-				}()
-
-				go func() {
-					if err := t.readStream(&wg, speech); err != nil {
-						fmt.Printf("failed to read stream %v", err)
-					}
-				}()
-
-				<-closeChan
-
-				oggWriter.Close()
-				pr.Close()
-				pw.Close()
-
-				wg.Wait()
-				close(cycleChan)
-			}()
-
-			select {
-			case <-time.After(MaxSpeechStreamDuration):
-				close(closeChan)
-				<-cycleChan
-				break
-			case <-t.doneChan:
-				close(closeChan)
-				<-cycleChan
-				break loop
-			}
+		if err != nil {
+			fmt.Printf("failed to create a new ogg writer %v", err)
+			return err
 		}
 
-		close(t.closedChan)
-	}()
+		speech, err := newSpeechStream(context.Background(), t.speechClient, t.language, t.track.Codec())
+		if err != nil {
+			fmt.Printf("failed to create a new speech stream %v", err)
+			return err
+		}
+
+		cycleChan := make(chan struct{}) // closed when the stream is done
+		go func() {
+			wg := sync.WaitGroup{}
+			wg.Add(3)
+
+			go func() {
+				if err := t.readTrack(&wg, closeChan, sb, oggWriter); err != nil {
+					fmt.Printf("failed to read track %v", err)
+				}
+			}()
+
+			go func() {
+				if err := t.writeStream(&wg, speech, oggReader); err != nil {
+					fmt.Printf("failed to write stream %v", err)
+				}
+			}()
+
+			go func() {
+				if err := t.readStream(&wg, speech); err != nil {
+					fmt.Printf("failed to read stream %v", err)
+				}
+			}()
+
+			<-closeChan
+
+			oggWriter.Close()
+			pr.Close()
+			pw.Close()
+
+			wg.Wait()
+			close(cycleChan)
+		}()
+
+		select {
+		case <-time.After(MaxSpeechStreamDuration):
+			close(closeChan)
+			<-cycleChan
+			break
+		case <-t.doneChan:
+			close(closeChan)
+			<-cycleChan
+			break loop
+		}
+	}
 
 	<-t.doneChan
+
+	close(t.closedChan)
 	return nil
 }
 
