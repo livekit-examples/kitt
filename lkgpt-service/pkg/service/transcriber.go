@@ -121,7 +121,7 @@ func (t *Transcriber) Start() error {
 					close(closeChan)
 				}
 
-				// Not really clean, the above goroutines don't really stop when closeChan is closed, so we need to close the pipe here
+				// Not really clean, the above goroutines don't entirely stop with closeChan, so we need to close the pipe here
 				pr.Close()
 				pw.Close()
 				oggWriter.Close()
@@ -247,10 +247,10 @@ func newSpeechStream(ctx context.Context, speechClient *speech.Client, rtpCodec 
 	if err := stream.Send(&speechpb.StreamingRecognizeRequest{
 		StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
 			StreamingConfig: &speechpb.StreamingRecognitionConfig{
-				SingleUtterance: true,
-				InterimResults:  true,
+				//SingleUtterance: true,
+				InterimResults: true, // Only used for realtime display on client
 				Config: &speechpb.RecognitionConfig{
-					Model:             "command_and_search",
+					//Model:             "command_and_search",
 					UseEnhanced:       true,
 					Encoding:          speechpb.RecognitionConfig_OGG_OPUS,
 					SampleRateHertz:   int32(rtpCodec.ClockRate),
