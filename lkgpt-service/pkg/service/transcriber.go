@@ -33,7 +33,7 @@ import (
 // 1. Try to recreate a new speech stream
 // 2. Wait 4.5 minutes and close the stream
 
-const MaxSpeechStreamDuration = 10 * time.Second // 4 * time.Minute
+const MaxSpeechStreamDuration = 4 * time.Minute
 
 type Transcriber struct {
 	track        *webrtc.TrackRemote
