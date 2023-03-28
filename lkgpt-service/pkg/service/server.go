@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -16,16 +17,18 @@ import (
 	"github.com/livekit/protocol/webhook"
 
 	speech "cloud.google.com/go/speech/apiv1"
+	texttospeech "cloud.google.com/go/texttospeech/apiv1"
 	lksdk "github.com/livekit/server-sdk-go"
 	openai "github.com/sashabaranov/go-openai"
 )
 
 type LiveGPT struct {
-	config       *config.Config
-	roomService  *lksdk.RoomServiceClient
-	keyProvider  *auth.SimpleKeyProvider
-	speechClient *speech.Client
-	openaiClient *openai.Client
+	config      *config.Config
+	roomService *lksdk.RoomServiceClient
+	keyProvider *auth.SimpleKeyProvider
+	gptClient   *openai.Client
+	sttClient   *speech.Client
+	ttsClient   *texttospeech.Client
 
 	httpServer *http.Server
 	doneChan   chan struct{}
@@ -56,13 +59,25 @@ func (s *LiveGPT) Start() error {
 		Handler: n,
 	}
 
-	speechClient, err := speech.NewClient(context.Background())
+	ctx := context.Background()
+	sttClient, err := speech.NewClient(ctx)
 	if err != nil {
 		return err
 	}
 
-	s.speechClient = speechClient
-	s.openaiClient = openai.NewClient(os.Getenv("OPENAI_API_KEY"))
+	ttsClient, err := texttospeech.NewClient(ctx)
+	if err != nil {
+		return err
+	}
+
+	openaiKey, ok := os.LookupEnv("OPENAI_API_KEY")
+	if !ok {
+		return errors.New("OPENAI_API_KEY environment variable is not set")
+	}
+
+	s.sttClient = sttClient
+	s.ttsClient = ttsClient
+	s.gptClient = openai.NewClient(openaiKey)
 
 	httpListener, err := net.Listen("tcp", s.httpServer.Addr)
 	if err != nil {
@@ -83,6 +98,9 @@ func (s *LiveGPT) Start() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 	_ = s.httpServer.Shutdown(ctx)
+
+	s.sttClient.Close()
+	s.ttsClient.Close()
 
 	close(s.closedChan)
 	return nil
@@ -118,7 +136,7 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		}
 
 		fmt.Printf("connecting gpt participant to %v", s.config.LiveKit.Url)
-		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, s.speechClient)
+		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, s.gptClient)
 		if err != nil {
 			fmt.Printf("error connecting gpt participant: %v", err)
 			return

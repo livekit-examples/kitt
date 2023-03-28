@@ -71,7 +71,7 @@ type ChatStream struct {
 	stream *openai.ChatCompletionStream
 }
 
-func (c *ChatStream) Read() (string, error) {
+func (c *ChatStream) Recv() (string, error) {
 	sb := strings.Builder{}
 	for {
 		response, err := c.stream.Recv()

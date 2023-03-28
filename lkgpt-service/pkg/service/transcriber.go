@@ -98,7 +98,7 @@ func (t *Transcriber) Start() error {
 				wg.Add(3)
 
 				go func() {
-					if err := t.readTrack(closeChan, &wg, sb, oggWriter); err != nil {
+					if err := t.readTrack(&wg, closeChan, sb, oggWriter); err != nil {
 						fmt.Printf("failed to read track %v", err)
 					}
 				}()
@@ -151,7 +151,7 @@ func (t *Transcriber) Stop() {
 
 // Read the RTP packets from the track
 // Create opus samples and put them inside an ogg container
-func (t *Transcriber) readTrack(closeChan chan struct{}, wg *sync.WaitGroup, sb *samplebuilder.SampleBuilder, oggWriter *oggwriter.OggWriter) error {
+func (t *Transcriber) readTrack(wg *sync.WaitGroup, closeChan chan struct{}, sb *samplebuilder.SampleBuilder, oggWriter *oggwriter.OggWriter) error {
 	defer wg.Done()
 
 	for {
