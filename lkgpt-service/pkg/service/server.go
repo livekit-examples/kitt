@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -14,13 +15,17 @@ import (
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/webhook"
 
+	speech "cloud.google.com/go/speech/apiv1"
 	lksdk "github.com/livekit/server-sdk-go"
+	openai "github.com/sashabaranov/go-openai"
 )
 
 type LiveGPT struct {
-	config      *config.Config
-	roomService *lksdk.RoomServiceClient
-	keyProvider *auth.SimpleKeyProvider
+	config       *config.Config
+	roomService  *lksdk.RoomServiceClient
+	keyProvider  *auth.SimpleKeyProvider
+	speechClient *speech.Client
+	openaiClient *openai.Client
 
 	httpServer *http.Server
 	doneChan   chan struct{}
@@ -50,6 +55,14 @@ func (s *LiveGPT) Start() error {
 		Addr:    fmt.Sprintf(":%d", s.config.Port),
 		Handler: n,
 	}
+
+	speechClient, err := speech.NewClient(context.Background())
+	if err != nil {
+		return err
+	}
+
+	s.speechClient = speechClient
+	s.openaiClient = openai.NewClient(os.Getenv("OPENAI_API_KEY"))
 
 	httpListener, err := net.Listen("tcp", s.httpServer.Addr)
 	if err != nil {
@@ -105,7 +118,7 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		}
 
 		fmt.Printf("connecting gpt participant to %v", s.config.LiveKit.Url)
-		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt)
+		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, s.speechClient)
 		if err != nil {
 			fmt.Printf("error connecting gpt participant: %v", err)
 			return
@@ -116,5 +129,6 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		s.participantsLock.Unlock()
 	} else if event.Event == webhook.EventParticipantLeft {
 		// If the GPT participant is alone, disconnect it
+
 	}
 }

@@ -38,6 +38,7 @@ const MaxSpeechStreamDuration = 4 * time.Minute
 type Transcriber struct {
 	track        *webrtc.TrackRemote
 	speechClient *speech.Client
+	language     string
 
 	onTranscription func(resp *speechpb.StreamingRecognizeResponse)
 	lock            sync.Mutex
@@ -46,7 +47,7 @@ type Transcriber struct {
 	closedChan chan struct{}
 }
 
-func NewTranscriber(track *webrtc.TrackRemote, speechClient *speech.Client) (*Transcriber, error) {
+func NewTranscriber(track *webrtc.TrackRemote, speechClient *speech.Client, language string) (*Transcriber, error) {
 	rtpCodec := track.Codec()
 
 	if !strings.EqualFold(rtpCodec.MimeType, "audio/opus") {
@@ -55,6 +56,7 @@ func NewTranscriber(track *webrtc.TrackRemote, speechClient *speech.Client) (*Tr
 
 	return &Transcriber{
 		track:        track,
+		language:     language,
 		speechClient: speechClient,
 		doneChan:     make(chan struct{}),
 		closedChan:   make(chan struct{}),
@@ -73,6 +75,7 @@ func (t *Transcriber) Start() error {
 		// Create a new stream each 4 minutes
 	loop:
 		for {
+			closeChan := make(chan struct{})
 			pr, pw := io.Pipe()
 			sb := samplebuilder.New(200, &codecs.OpusPacket{}, t.track.Codec().ClockRate)
 			oggReader, bpw := bufio.NewReader(pr), bufio.NewWriter(pw)
@@ -83,7 +86,7 @@ func (t *Transcriber) Start() error {
 				return
 			}
 
-			speech, err := newSpeechStream(context.Background(), t.speechClient, t.track.Codec())
+			speech, err := newSpeechStream(context.Background(), t.speechClient, t.language, t.track.Codec())
 			if err != nil {
 				fmt.Printf("failed to create a new speech stream %v", err)
 				return
@@ -91,7 +94,6 @@ func (t *Transcriber) Start() error {
 
 			cycleChan := make(chan struct{}) // closed when the stream is done
 			go func() {
-				closeChan := make(chan struct{})
 				wg := sync.WaitGroup{}
 				wg.Add(3)
 
@@ -102,38 +104,35 @@ func (t *Transcriber) Start() error {
 				}()
 
 				go func() {
-					if err := t.writeStream(closeChan, &wg, speech, oggReader); err != nil {
+					if err := t.writeStream(&wg, speech, oggReader); err != nil {
 						fmt.Printf("failed to write stream %v", err)
 					}
 				}()
 
-				utteranceChan := make(chan struct{})
 				go func() {
-					if err := t.readStream(closeChan, utteranceChan, &wg, speech); err != nil {
+					if err := t.readStream(&wg, speech); err != nil {
 						fmt.Printf("failed to read stream %v", err)
 					}
 				}()
 
-				select {
-				case <-t.doneChan:
-				case <-time.After(MaxSpeechStreamDuration):
-				case <-utteranceChan:
-					close(closeChan)
-				}
+				<-closeChan
 
-				// Not really clean, the above goroutines don't entirely stop with closeChan, so we need to close the pipe here
+				oggWriter.Close()
 				pr.Close()
 				pw.Close()
-				oggWriter.Close()
 
 				wg.Wait()
 				close(cycleChan)
 			}()
 
 			select {
-			case <-cycleChan:
+			case <-time.After(MaxSpeechStreamDuration):
+				close(closeChan)
+				<-cycleChan
 				break
 			case <-t.doneChan:
+				close(closeChan)
+				<-cycleChan
 				break loop
 			}
 		}
@@ -163,6 +162,7 @@ func (t *Transcriber) readTrack(closeChan chan struct{}, wg *sync.WaitGroup, sb 
 			pkt, _, err := t.track.ReadRTP()
 			if err != nil {
 				fmt.Printf("failed to read track %v", err)
+				return err
 			}
 
 			sb.Push(pkt)
@@ -175,69 +175,55 @@ func (t *Transcriber) readTrack(closeChan chan struct{}, wg *sync.WaitGroup, sb 
 }
 
 // Forward the ogg data to Speech To Text API
-func (t *Transcriber) writeStream(closeChan chan struct{}, wg *sync.WaitGroup, speech speechpb.Speech_StreamingRecognizeClient, oggReader *bufio.Reader) error {
+func (t *Transcriber) writeStream(wg *sync.WaitGroup, speech speechpb.Speech_StreamingRecognizeClient, oggReader *bufio.Reader) error {
 	defer wg.Done()
 
 	buf := make([]byte, 1024)
 	for {
-		select {
-		case <-closeChan:
-			return nil
-		default:
-			n, err := oggReader.Read(buf)
-			if err != nil {
-				if err == io.ErrClosedPipe {
-					return nil
-				}
+		n, err := oggReader.Read(buf)
+		if err != nil {
+			if err == io.ErrClosedPipe {
+				return nil
+			}
+			return err
+		}
+		if n > 0 {
+			if err := speech.Send(&speechpb.StreamingRecognizeRequest{
+				StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
+					AudioContent: buf[:n],
+				},
+			}); err != nil {
 				return err
 			}
-			if n > 0 {
-				if err := speech.Send(&speechpb.StreamingRecognizeRequest{
-					StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
-						AudioContent: buf[:n],
-					},
-				}); err != nil {
-					return err
-				}
 
-			}
 		}
 	}
 }
 
 // Read the responses from Google
 // It includes estimation with the stability score and the final result
-func (t *Transcriber) readStream(closeChan chan struct{}, utterance chan struct{}, wg *sync.WaitGroup, speech speechpb.Speech_StreamingRecognizeClient) error {
+func (t *Transcriber) readStream(wg *sync.WaitGroup, speech speechpb.Speech_StreamingRecognizeClient) error {
 	defer wg.Done()
 
 	for {
-		select {
-		case <-closeChan:
-			return nil
-		default:
-			resp, err := speech.Recv()
-			if err != nil {
-				return err
-			}
+		resp, err := speech.Recv()
+		if err != nil {
+			return err
+		}
 
-			fmt.Printf("received transcription results: %v", resp)
+		fmt.Printf("received transcription results: %v", resp)
 
-			t.lock.Lock()
-			onTranscription := t.onTranscription
-			t.lock.Unlock()
+		t.lock.Lock()
+		onTranscription := t.onTranscription
+		t.lock.Unlock()
 
-			if onTranscription != nil {
-				onTranscription(resp)
-			}
-
-			if resp.SpeechEventType == speechpb.StreamingRecognizeResponse_END_OF_SINGLE_UTTERANCE {
-				utterance <- struct{}{}
-			}
+		if onTranscription != nil {
+			onTranscription(resp)
 		}
 	}
 }
 
-func newSpeechStream(ctx context.Context, speechClient *speech.Client, rtpCodec webrtc.RTPCodecParameters) (speechpb.Speech_StreamingRecognizeClient, error) {
+func newSpeechStream(ctx context.Context, speechClient *speech.Client, language string, rtpCodec webrtc.RTPCodecParameters) (speechpb.Speech_StreamingRecognizeClient, error) {
 	stream, err := speechClient.StreamingRecognize(ctx)
 	if err != nil {
 		return nil, err
@@ -247,15 +233,13 @@ func newSpeechStream(ctx context.Context, speechClient *speech.Client, rtpCodec 
 	if err := stream.Send(&speechpb.StreamingRecognizeRequest{
 		StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
 			StreamingConfig: &speechpb.StreamingRecognitionConfig{
-				//SingleUtterance: true,
 				InterimResults: true, // Only used for realtime display on client
 				Config: &speechpb.RecognitionConfig{
-					//Model:             "command_and_search",
 					UseEnhanced:       true,
 					Encoding:          speechpb.RecognitionConfig_OGG_OPUS,
 					SampleRateHertz:   int32(rtpCodec.ClockRate),
 					AudioChannelCount: int32(rtpCodec.Channels),
-					LanguageCode:      "fr-FR", // TODO(theomonnom): Support multiple languages
+					LanguageCode:      language,
 				},
 			},
 		},
