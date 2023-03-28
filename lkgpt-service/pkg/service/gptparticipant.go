@@ -21,6 +21,8 @@ var (
 	ErrBusy              = errors.New("the gpt participant is already used")
 )
 
+const LanguageCode = "en-US"
+
 type Sentence struct {
 	Sid        string // participant sid
 	Name       string
@@ -46,7 +48,7 @@ func ConnectGPTParticipant(url, token string, sttClient *speech.Client, ttsClien
 		sttClient:   sttClient,
 		ttsClient:   ttsClient,
 		gptClient:   gptClient,
-		synthesizer: NewSynthesizer(ttsClient),
+		synthesizer: NewSynthesizer(ttsClient, LanguageCode),
 		completion:  NewChatCompletion(gptClient),
 	}
 	roomCallback := &lksdk.RoomCallback{
@@ -69,7 +71,7 @@ func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication 
 		return
 	}
 
-	transcriber, err := NewTranscriber(track, p.sttClient, "en-US")
+	transcriber, err := NewTranscriber(track, p.sttClient, LanguageCode)
 	if err != nil {
 		fmt.Printf("failed to create the transcriber: %v", err)
 		return
