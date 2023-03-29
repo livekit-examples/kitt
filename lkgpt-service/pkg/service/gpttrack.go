@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
@@ -42,8 +43,9 @@ type GPTTrack struct {
 
 func NewGPTTrack() (*GPTTrack, error) {
 	cap := webrtc.RTPCodecCapability{
-		Channels: 1,
-		MimeType: webrtc.MimeTypeOpus,
+		Channels:  1,
+		MimeType:  webrtc.MimeTypeOpus,
+		ClockRate: 48000,
 	}
 
 	track, err := lksdk.NewLocalSampleTrack(cap)
@@ -52,7 +54,10 @@ func NewGPTTrack() (*GPTTrack, error) {
 	}
 
 	provider := &provider{}
-	track.StartWrite(provider, func() {})
+	err = track.StartWrite(provider, func() {})
+	if err != nil {
+		return nil, err
+	}
 
 	return &GPTTrack{
 		sampleTrack: track,
@@ -67,35 +72,57 @@ func (t *GPTTrack) Publish(lp *lksdk.LocalParticipant) (pub *lksdk.LocalTrackPub
 	return
 }
 
-func (t *GPTTrack) QueueReader(reader *oggreader.OggReader) {
-	t.provider.QueueReader(reader)
+// Called when the last oggReader in the queue finished being read
+func (t *GPTTrack) OnComplete(f func(err error)) {
+	t.provider.OnComplete(f)
+}
+
+func (t *GPTTrack) QueueReader(reader io.Reader) error {
+	oggReader, oggHeader, err := oggreader.NewWith(reader)
+	if err != nil {
+		return err
+	}
+
+	if oggHeader.Channels != 1 {
+		return ErrInvalidFormat
+	}
+
+	t.provider.QueueReader(oggReader)
+	return nil
 }
 
 type provider struct {
 	reader      *oggreader.OggReader
 	lastGranule uint64
 
-	queue []*oggreader.OggReader
-	lock  sync.Mutex
+	queue      []*oggreader.OggReader
+	lock       sync.Mutex
+	onComplete func(err error)
 }
 
 func (p *provider) NextSample() (media.Sample, error) {
+	p.lock.Lock()
+	onComplete := p.onComplete
 	if p.reader == nil && len(p.queue) > 0 {
-		// Read the next ogg
-		p.lock.Lock()
+		logger.Debugw("switching to next reader")
 		p.reader = p.queue[0]
 		p.queue = p.queue[1:]
-		p.lock.Unlock()
 	}
+	p.lock.Unlock()
 
 	if p.reader != nil {
 		sample := media.Sample{}
 		data, header, err := p.reader.ParseNextPage()
 		if err != nil {
+			if onComplete != nil {
+				onComplete(err)
+			}
+
 			if err == io.EOF {
 				p.reader = nil
 				return p.NextSample()
 			} else {
+				logger.Errorw("failed to parse next page", err)
 				return sample, err
 			}
 		}
@@ -118,17 +145,25 @@ func (p *provider) NextSample() (media.Sample, error) {
 	}, nil
 }
 
-func (p *provider) QueueReader(reader *oggreader.OggReader) {
-	p.lock.Lock()
-	defer p.lock.Unlock()
-
-	p.queue = append(p.queue, reader)
-}
-
 func (p *provider) OnBind() error {
 	return nil
 }
 
 func (p *provider) OnUnbind() error {
 	return nil
+}
+
+// Called when the *one* oggReader finished reading
+func (t *provider) OnComplete(f func(err error)) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	t.onComplete = f
+}
+
+func (p *provider) QueueReader(reader *oggreader.OggReader) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	p.queue = append(p.queue, reader)
 }

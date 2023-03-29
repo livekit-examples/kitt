@@ -1,9 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -109,10 +111,18 @@ func (p *GPTParticipant) onTranscriptionReceived(rp *lksdk.RemoteParticipant) fu
 					if p.isBusy.CompareAndSwap(false, true) {
 						defer p.isBusy.Store(false)
 						logger.Debugw("answering to", "participant", rp.SID(), "prompt", prompt)
-						err := p.Answer(prompt)
+						answer, err := p.Answer(prompt)
 						if err != nil && err != ErrBusy {
 							logger.Errorw("failed to answer", err, "participant", rp.SID(), "prompt", prompt)
 						}
+
+						p.lock.Lock()
+						p.conversation = append(p.conversation, &Sentence{
+							Sid:        p.room.LocalParticipant.SID(),
+							Name:       "You",
+							Transcript: answer,
+						})
+						p.lock.Unlock()
 					}
 				}()
 
@@ -130,7 +140,7 @@ func (p *GPTParticipant) onTranscriptionReceived(rp *lksdk.RemoteParticipant) fu
 	}
 }
 
-func (p *GPTParticipant) Answer(prompt string) error {
+func (p *GPTParticipant) Answer(prompt string) (string, error) {
 	p.lock.Lock()
 	tmp := make([]*Sentence, len(p.conversation))
 	copy(tmp, p.conversation)
@@ -139,12 +149,13 @@ func (p *GPTParticipant) Answer(prompt string) error {
 	stream, err := p.completion.Complete(context.Background(), tmp, prompt)
 	if err != nil {
 		logger.Errorw("failed to create openai completion stream", err)
-		return err
+		return "", err
 	}
 
-	// played is nil/closed if the last sentence has finished playing (used to guarantee the order of the sentences)
-	var played chan struct{}
-	var synthesizeWG sync.WaitGroup
+	answerBuilder := strings.Builder{}
+
+	var last chan struct{} // Used to order the goroutines (See QueueReader bellow)
+	var playWG sync.WaitGroup
 	for {
 		sentence, err := stream.Recv()
 		if err != nil {
@@ -153,36 +164,50 @@ func (p *GPTParticipant) Answer(prompt string) error {
 			}
 
 			logger.Errorw("failed to receive completion stream", err)
-			return err
+			return "", err
 		}
 
-		logger.Debugw("synthesizing", "sentence", sentence)
-		synthesizeWG.Add(1)
-		tmpPlayed := played
+		answerBuilder.WriteString(sentence)
+
+		tmpLast := last
 		currentChan := make(chan struct{})
+
 		go func() {
 			defer close(currentChan)
-			defer synthesizeWG.Done()
 
-			_, err := p.synthesizer.Synthesize(context.Background(), sentence)
+			logger.Debugw("synthesizing", "sentence", sentence)
+			resp, err := p.synthesizer.Synthesize(context.Background(), sentence)
 			if err != nil {
 				logger.Errorw("failed to synthesize", err, "sentence", sentence)
 				return
 			}
 
-			if tmpPlayed == nil {
-				<-tmpPlayed
+			if tmpLast == nil {
+				<-tmpLast // Queue in order
 			}
 
-			// Publish sample here
+			logger.Debugw("finished synthesizing, queuing sentence", "sentence", sentence)
+			err = p.gptTrack.QueueReader(bytes.NewReader(resp.AudioContent))
+			if err != nil {
+				logger.Errorw("failed to queue reader", err, "sentence", sentence)
+				return
+			}
 
+			playWG.Add(1)
 		}()
 
-		played = currentChan
+		last = currentChan
 	}
 
-	synthesizeWG.Wait()
-	return nil
+	p.gptTrack.OnComplete(func(err error) {
+		playWG.Done()
+	})
+
+	playWG.Wait()
+
+	answer := answerBuilder.String()
+	logger.Debugw("finished playing", "answer", answer)
+	return answer, nil
 }
 
 func (p *GPTParticipant) Disconnect() {
