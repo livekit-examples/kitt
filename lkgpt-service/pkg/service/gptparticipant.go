@@ -36,6 +36,8 @@ type GPTParticipant struct {
 	ttsClient *tts.Client
 	gptClient *openai.Client
 
+	gptTrack *GPTTrack
+
 	synthesizer *Synthesizer
 	completion  *ChatCompletion
 	isBusy      atomic.Bool
@@ -63,6 +65,19 @@ func ConnectGPTParticipant(url, token string, sttClient *stt.Client, ttsClient *
 		return nil, err
 	}
 
+	track, err := NewGPTTrack()
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = track.Publish(room.LocalParticipant)
+	if err != nil {
+		return nil, err
+	}
+	track.SetMuted(true) // No synthesizer yet
+	go track.Start()
+
+	p.gptTrack = track
 	p.room = room
 
 	return p, nil
@@ -173,5 +188,6 @@ func (p *GPTParticipant) Answer(prompt string) error {
 }
 
 func (p *GPTParticipant) Disconnect() {
+	p.gptTrack.Stop()
 	p.room.Disconnect()
 }
