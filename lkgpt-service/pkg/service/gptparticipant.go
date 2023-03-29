@@ -7,18 +7,33 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	stt "cloud.google.com/go/speech/apiv1"
 	sttpb "cloud.google.com/go/speech/apiv1/speechpb"
 	tts "cloud.google.com/go/texttospeech/apiv1"
 	lksdk "github.com/livekit/server-sdk-go"
 	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media"
 	"github.com/sashabaranov/go-openai"
 )
 
 var (
 	ErrCodecNotSupported = errors.New("this codec isn't supported")
 	ErrBusy              = errors.New("the gpt participant is already used")
+
+	OpusSilenceFrame = []byte{
+		0xf8, 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	}
 )
 
 const LanguageCode = "en-US"
@@ -38,8 +53,6 @@ type GPTParticipant struct {
 	synthesizer *Synthesizer
 	completion  *ChatCompletion
 	isBusy      atomic.Bool
-
-	trackWriter io.WriteCloser
 
 	lock         sync.Mutex
 	conversation []*Sentence
@@ -64,8 +77,7 @@ func ConnectGPTParticipant(url, token string, sttClient *stt.Client, ttsClient *
 		return nil, err
 	}
 
-	rp, wp := io.Pipe()
-	track, err := lksdk.NewLocalReaderTrack(rp, webrtc.MimeTypeOpus) // Synthesizer is configured to give us OGG_OPUS
+	track, err := lksdk.NewLocalSampleTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus})
 	if err != nil {
 		return nil, err
 	}
@@ -75,8 +87,21 @@ func ConnectGPTParticipant(url, token string, sttClient *stt.Client, ttsClient *
 		return nil, err
 	}
 
+	go func() {
+		for {
+			if !track.IsBound() {
+				continue
+			}
+
+			time.Sleep(50 * time.Millisecond)
+			err := track.WriteSample(media.Sample{Data: OpusSilenceFrame}, nil)
+			if err != nil {
+				fmt.Printf("failed to write silence frame: %v", err)
+			}
+		}
+	}()
+
 	p.room = room
-	p.trackWriter = wp
 
 	return p, nil
 }
@@ -167,7 +192,7 @@ func (p *GPTParticipant) Answer(prompt string) error {
 			defer synthesizeWG.Done()
 			defer close(currentChan)
 
-			resp, err := p.synthesizer.Synthesize(context.Background(), sentence)
+			_, err := p.synthesizer.Synthesize(context.Background(), sentence)
 			if err != nil {
 				fmt.Printf("failed to synthesize %v", err)
 				return
@@ -177,11 +202,7 @@ func (p *GPTParticipant) Answer(prompt string) error {
 				<-tmpPlayed
 			}
 
-			_, err = p.trackWriter.Write(resp.AudioContent)
-			if err != nil {
-				fmt.Printf("failed to write to the track %v", err)
-				return
-			}
+			// Publish sample here
 
 		}()
 

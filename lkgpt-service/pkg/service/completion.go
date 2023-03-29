@@ -35,8 +35,6 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 		sb.WriteString("\n")
 	}
 	conversation := sb.String()
-
-	fmt.Println("Starting ChatStream")
 	stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 		Model: openai.GPT3Dot5Turbo,
 		Messages: []openai.ChatCompletionMessage{
@@ -78,7 +76,6 @@ func (c *ChatStream) Recv() (string, error) {
 	sb := strings.Builder{}
 	for {
 		response, err := c.stream.Recv()
-		fmt.Println("response:", response)
 		if err != nil {
 			content := sb.String()
 			if err == io.EOF && len(strings.TrimSpace(content)) != 0 {
