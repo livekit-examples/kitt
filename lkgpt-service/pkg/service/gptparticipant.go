@@ -74,8 +74,6 @@ func ConnectGPTParticipant(url, token string, sttClient *stt.Client, ttsClient *
 	if err != nil {
 		return nil, err
 	}
-	track.SetMuted(true) // No synthesizer yet
-	go track.Start()
 
 	p.gptTrack = track
 	p.room = room
@@ -163,8 +161,8 @@ func (p *GPTParticipant) Answer(prompt string) error {
 		tmpPlayed := played
 		currentChan := make(chan struct{})
 		go func() {
-			defer synthesizeWG.Done()
 			defer close(currentChan)
+			defer synthesizeWG.Done()
 
 			_, err := p.synthesizer.Synthesize(context.Background(), sentence)
 			if err != nil {
@@ -188,6 +186,5 @@ func (p *GPTParticipant) Answer(prompt string) error {
 }
 
 func (p *GPTParticipant) Disconnect() {
-	p.gptTrack.Stop()
 	p.room.Disconnect()
 }
