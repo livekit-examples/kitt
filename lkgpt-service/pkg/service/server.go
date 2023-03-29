@@ -23,6 +23,10 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
+const (
+	BotIdentity = "livegpt"
+)
+
 type LiveGPT struct {
 	config      *config.Config
 	roomService *lksdk.RoomServiceClient
@@ -119,16 +123,24 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if event.Event == webhook.EventRoomStarted {
-		token := s.roomService.CreateToken()
-
-		grant := &auth.VideoGrant{
-			Room:     event.Room.Name,
-			RoomJoin: true,
+	if event.Event == webhook.EventParticipantJoined {
+		if event.Participant.Identity == BotIdentity {
+			return
 		}
+		// If the GPT participant is not connected, connect it
+		s.participantsLock.Lock()
+		if _, ok := s.participants[event.Room.Name]; ok {
+			s.participantsLock.Unlock()
+			return
+		}
+		s.participantsLock.Unlock()
 
-		token.SetIdentity("livegpt").
-			AddGrant(grant)
+		token := s.roomService.CreateToken().
+			SetIdentity(BotIdentity).
+			AddGrant(&auth.VideoGrant{
+				Room:     event.Room.Name,
+				RoomJoin: true,
+			})
 
 		jwt, err := token.ToJWT()
 		if err != nil {
@@ -148,6 +160,14 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		s.participantsLock.Unlock()
 	} else if event.Event == webhook.EventParticipantLeft {
 		// If the GPT participant is alone, disconnect it
-
+		s.participantsLock.Lock()
+		defer s.participantsLock.Unlock()
+		if p, ok := s.participants[event.Room.Name]; ok {
+			if event.Room.NumParticipants <= 1 {
+				logger.Infow("disconnecting gpt participant", "room", event.Room.Name)
+				p.Disconnect()
+				delete(s.participants, event.Room.Name)
+			}
+		}
 	}
 }
