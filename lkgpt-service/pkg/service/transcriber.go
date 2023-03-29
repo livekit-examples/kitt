@@ -4,14 +4,14 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"time"
 
-	speech "cloud.google.com/go/speech/apiv1"
-	"cloud.google.com/go/speech/apiv1/speechpb"
+	stt "cloud.google.com/go/speech/apiv1"
+	sttpb "cloud.google.com/go/speech/apiv1/speechpb"
+	"github.com/livekit/protocol/logger"
 	"github.com/livekit/server-sdk-go/pkg/samplebuilder"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v3"
@@ -37,17 +37,17 @@ const MaxSpeechStreamDuration = 4 * time.Minute
 
 type Transcriber struct {
 	track        *webrtc.TrackRemote
-	speechClient *speech.Client
+	speechClient *stt.Client
 	language     string
 
-	onTranscription func(resp *speechpb.StreamingRecognizeResponse)
+	onTranscription func(resp *sttpb.StreamingRecognizeResponse)
 	lock            sync.Mutex
 
 	doneChan   chan struct{}
 	closedChan chan struct{}
 }
 
-func NewTranscriber(track *webrtc.TrackRemote, speechClient *speech.Client, language string) (*Transcriber, error) {
+func NewTranscriber(track *webrtc.TrackRemote, speechClient *stt.Client, language string) (*Transcriber, error) {
 	rtpCodec := track.Codec()
 
 	if !strings.EqualFold(rtpCodec.MimeType, "audio/opus") {
@@ -63,7 +63,7 @@ func NewTranscriber(track *webrtc.TrackRemote, speechClient *speech.Client, lang
 	}, nil
 }
 
-func (t *Transcriber) OnTranscriptionReceived(f func(resp *speechpb.StreamingRecognizeResponse)) {
+func (t *Transcriber) OnTranscriptionReceived(f func(resp *sttpb.StreamingRecognizeResponse)) {
 	t.lock.Lock()
 	t.onTranscription = f
 	t.lock.Unlock()
@@ -80,13 +80,13 @@ loop:
 		oggWriter, err := oggwriter.NewWith(bpw, t.track.Codec().ClockRate, t.track.Codec().Channels)
 
 		if err != nil {
-			fmt.Printf("failed to create a new ogg writer %v", err)
+			logger.Errorw("failed to create a new ogg writer", err)
 			return err
 		}
 
 		speech, err := newSpeechStream(context.Background(), t.speechClient, t.language, t.track.Codec())
 		if err != nil {
-			fmt.Printf("failed to create a new speech stream %v", err)
+			logger.Errorw("failed to create a new speech stream", err)
 			return err
 		}
 
@@ -97,19 +97,19 @@ loop:
 
 			go func() {
 				if err := t.readTrack(&wg, closeChan, sb, oggWriter); err != nil {
-					fmt.Printf("failed to read track %v", err)
+					logger.Errorw("failed to read track", err)
 				}
 			}()
 
 			go func() {
 				if err := t.writeStream(&wg, speech, oggReader); err != nil {
-					fmt.Printf("failed to write stream %v", err)
+					logger.Errorw("failed to write stt stream", err)
 				}
 			}()
 
 			go func() {
 				if err := t.readStream(&wg, speech); err != nil {
-					fmt.Printf("failed to read stream %v", err)
+					logger.Errorw("failed to read stt stream", err)
 				}
 			}()
 
@@ -158,7 +158,6 @@ func (t *Transcriber) readTrack(wg *sync.WaitGroup, closeChan chan struct{}, sb 
 		default:
 			pkt, _, err := t.track.ReadRTP()
 			if err != nil {
-				fmt.Printf("failed to read track %v", err)
 				return err
 			}
 
@@ -172,7 +171,7 @@ func (t *Transcriber) readTrack(wg *sync.WaitGroup, closeChan chan struct{}, sb 
 }
 
 // Forward the ogg data to Speech To Text API
-func (t *Transcriber) writeStream(wg *sync.WaitGroup, speech speechpb.Speech_StreamingRecognizeClient, oggReader *bufio.Reader) error {
+func (t *Transcriber) writeStream(wg *sync.WaitGroup, speech sttpb.Speech_StreamingRecognizeClient, oggReader *bufio.Reader) error {
 	defer wg.Done()
 
 	buf := make([]byte, 1024)
@@ -185,8 +184,8 @@ func (t *Transcriber) writeStream(wg *sync.WaitGroup, speech speechpb.Speech_Str
 			return err
 		}
 		if n > 0 {
-			if err := speech.Send(&speechpb.StreamingRecognizeRequest{
-				StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
+			if err := speech.Send(&sttpb.StreamingRecognizeRequest{
+				StreamingRequest: &sttpb.StreamingRecognizeRequest_AudioContent{
 					AudioContent: buf[:n],
 				},
 			}); err != nil {
@@ -199,7 +198,7 @@ func (t *Transcriber) writeStream(wg *sync.WaitGroup, speech speechpb.Speech_Str
 
 // Read the responses from Google
 // It includes estimation with the stability score and the final result
-func (t *Transcriber) readStream(wg *sync.WaitGroup, speech speechpb.Speech_StreamingRecognizeClient) error {
+func (t *Transcriber) readStream(wg *sync.WaitGroup, speech sttpb.Speech_StreamingRecognizeClient) error {
 	defer wg.Done()
 
 	for {
@@ -218,20 +217,20 @@ func (t *Transcriber) readStream(wg *sync.WaitGroup, speech speechpb.Speech_Stre
 	}
 }
 
-func newSpeechStream(ctx context.Context, speechClient *speech.Client, language string, rtpCodec webrtc.RTPCodecParameters) (speechpb.Speech_StreamingRecognizeClient, error) {
+func newSpeechStream(ctx context.Context, speechClient *stt.Client, language string, rtpCodec webrtc.RTPCodecParameters) (sttpb.Speech_StreamingRecognizeClient, error) {
 	stream, err := speechClient.StreamingRecognize(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	// Send the initial configuration message.
-	if err := stream.Send(&speechpb.StreamingRecognizeRequest{
-		StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
-			StreamingConfig: &speechpb.StreamingRecognitionConfig{
+	if err := stream.Send(&sttpb.StreamingRecognizeRequest{
+		StreamingRequest: &sttpb.StreamingRecognizeRequest_StreamingConfig{
+			StreamingConfig: &sttpb.StreamingRecognitionConfig{
 				InterimResults: true, // Only used for realtime display on client
-				Config: &speechpb.RecognitionConfig{
+				Config: &sttpb.RecognitionConfig{
 					UseEnhanced:       true,
-					Encoding:          speechpb.RecognitionConfig_OGG_OPUS,
+					Encoding:          sttpb.RecognitionConfig_OGG_OPUS,
 					SampleRateHertz:   int32(rtpCodec.ClockRate),
 					AudioChannelCount: int32(rtpCodec.Channels),
 					LanguageCode:      language,

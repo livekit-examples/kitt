@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 
+	"github.com/livekit/protocol/logger"
 	"gopkg.in/yaml.v3"
 )
 
@@ -13,10 +14,9 @@ type LiveKitConfig struct {
 }
 
 type Config struct {
-	Development bool          `yaml:"development"`
-	LogLevel    string        `yaml:"log_level"`
-	LiveKit     LiveKitConfig `yaml:"livekit"`
-	Port        int           `yaml:"port"`
+	Logger  logger.Config `yaml:"logging"`
+	LiveKit LiveKitConfig `yaml:"livekit"`
+	Port    int           `yaml:"port"`
 }
 
 func NewConfig(content string) (*Config, error) {

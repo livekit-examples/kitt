@@ -1,13 +1,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/urfave/cli"
+	"github.com/livekit/protocol/logger"
+	"github.com/urfave/cli/v2"
 
 	"github.com/livekit-examples/livegpt/pkg/config"
 	"github.com/livekit-examples/livegpt/pkg/service"
@@ -18,8 +19,14 @@ func main() {
 		Name: "live-gpt",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:  "config",
-				Usage: "path to the config file",
+				Name:    "config",
+				Usage:   "LiveGPT yaml config file",
+				EnvVars: []string{"LIVEGPT_CONFIG_FILE"},
+			},
+			&cli.StringFlag{
+				Name:    "config-body",
+				Usage:   "LiveGPT yaml config body",
+				EnvVars: []string{"LIVEGPT_CONFIG_BODY"},
 			},
 		},
 		Action: runServer,
@@ -32,23 +39,24 @@ func main() {
 
 func runServer(c *cli.Context) error {
 	configFile := c.String("config")
-
-	var configContent string
-	if configFile == "" {
-		configContent = os.Getenv("LIVEGPT_CONFIG")
-	} else {
-		content, err := ioutil.ReadFile(configFile)
+	configBody := c.String("config-body")
+	if configBody == "" {
+		if configFile == "" {
+			return errors.New("config file or config body is required")
+		}
+		content, err := os.ReadFile(configFile)
 		if err != nil {
 			return err
 		}
-
-		configContent = string(content)
+		configBody = string(content)
 	}
 
-	conf, err := config.NewConfig(configContent)
+	conf, err := config.NewConfig(configBody)
 	if err != nil {
 		return err
 	}
+
+	logger.InitFromConfig(conf.Logger, "livegpt")
 
 	server := service.NewLiveGPT(conf)
 	sigChan := make(chan os.Signal, 1)
@@ -56,7 +64,7 @@ func runServer(c *cli.Context) error {
 
 	go func() {
 		sig := <-sigChan
-		fmt.Printf("exit requested, shutting down: %v", sig)
+		logger.Infow("exit requested, shutting down", "signal", sig)
 		server.Stop()
 	}()
 

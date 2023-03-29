@@ -10,7 +10,7 @@ require (
 	github.com/pion/rtp v1.7.13
 	github.com/pion/webrtc/v3 v3.1.58
 	github.com/sashabaranov/go-openai v1.5.7
-	github.com/urfave/cli v1.22.12
+	github.com/urfave/cli/v2 v2.25.1
 	github.com/urfave/negroni v1.0.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -68,6 +68,7 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/thoas/go-funk v0.9.3 // indirect
 	github.com/twitchtv/twirp v8.1.3+incompatible // indirect
+	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect

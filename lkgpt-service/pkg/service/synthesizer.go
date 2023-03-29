@@ -3,35 +3,35 @@ package service
 import (
 	"context"
 
-	texttospeech "cloud.google.com/go/texttospeech/apiv1"
-	"cloud.google.com/go/texttospeech/apiv1/texttospeechpb"
+	tts "cloud.google.com/go/texttospeech/apiv1"
+	ttspb "cloud.google.com/go/texttospeech/apiv1/texttospeechpb"
 )
 
 type Synthesizer struct {
-	client   *texttospeech.Client
+	client   *tts.Client
 	language string
 }
 
-func NewSynthesizer(client *texttospeech.Client, language string) *Synthesizer {
+func NewSynthesizer(client *tts.Client, language string) *Synthesizer {
 	return &Synthesizer{
 		client:   client,
 		language: language,
 	}
 }
 
-func (s *Synthesizer) Synthesize(ctx context.Context, ssml string) (resp *texttospeechpb.SynthesizeSpeechResponse, err error) {
-	req := &texttospeechpb.SynthesizeSpeechRequest{
-		Input: &texttospeechpb.SynthesisInput{
-			InputSource: &texttospeechpb.SynthesisInput_Ssml{
+func (s *Synthesizer) Synthesize(ctx context.Context, ssml string) (resp *ttspb.SynthesizeSpeechResponse, err error) {
+	req := &ttspb.SynthesizeSpeechRequest{
+		Input: &ttspb.SynthesisInput{
+			InputSource: &ttspb.SynthesisInput_Ssml{
 				Ssml: ssml,
 			},
 		},
-		Voice: &texttospeechpb.VoiceSelectionParams{
+		Voice: &ttspb.VoiceSelectionParams{
 			LanguageCode: s.language,
-			SsmlGender:   texttospeechpb.SsmlVoiceGender_MALE,
+			SsmlGender:   ttspb.SsmlVoiceGender_MALE,
 		},
-		AudioConfig: &texttospeechpb.AudioConfig{
-			AudioEncoding:   texttospeechpb.AudioEncoding_OGG_OPUS,
+		AudioConfig: &ttspb.AudioConfig{
+			AudioEncoding:   ttspb.AudioEncoding_OGG_OPUS,
 			SampleRateHertz: 48000,
 		},
 	}

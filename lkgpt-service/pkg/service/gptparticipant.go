@@ -3,37 +3,23 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	stt "cloud.google.com/go/speech/apiv1"
 	sttpb "cloud.google.com/go/speech/apiv1/speechpb"
 	tts "cloud.google.com/go/texttospeech/apiv1"
+	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go"
 	"github.com/pion/webrtc/v3"
-	"github.com/pion/webrtc/v3/pkg/media"
 	"github.com/sashabaranov/go-openai"
 )
 
 var (
 	ErrCodecNotSupported = errors.New("this codec isn't supported")
 	ErrBusy              = errors.New("the gpt participant is already used")
-
-	OpusSilenceFrame = []byte{
-		0xf8, 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-	}
 )
 
 const LanguageCode = "en-US"
@@ -77,47 +63,23 @@ func ConnectGPTParticipant(url, token string, sttClient *stt.Client, ttsClient *
 		return nil, err
 	}
 
-	track, err := lksdk.NewLocalSampleTrack(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus})
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = room.LocalParticipant.PublishTrack(track, &lksdk.TrackPublicationOptions{})
-	if err != nil {
-		return nil, err
-	}
-
-	go func() {
-		for {
-			if !track.IsBound() {
-				continue
-			}
-
-			time.Sleep(50 * time.Millisecond)
-			err := track.WriteSample(media.Sample{Data: OpusSilenceFrame}, nil)
-			if err != nil {
-				fmt.Printf("failed to write silence frame: %v", err)
-			}
-		}
-	}()
-
 	p.room = room
 
 	return p, nil
 }
 
 func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
-	if track.Kind() != webrtc.RTPCodecTypeAudio {
+	if track.Kind() != webrtc.RTPCodecTypeAudio || publication.Source() != livekit.TrackSource_MICROPHONE {
 		return
 	}
 
 	transcriber, err := NewTranscriber(track, p.sttClient, LanguageCode)
 	if err != nil {
-		fmt.Printf("failed to create the transcriber: %v", err)
+		logger.Errorw("failed to create the transcriber", err)
 		return
 	}
 
-	fmt.Printf("starting transcription for %s", publication.SID())
+	logger.Infow("starting transcription for", "participant", rp.SID(), "track", track.ID())
 	transcriber.OnTranscriptionReceived(p.onTranscriptionReceived(rp))
 	go transcriber.Start()
 }
@@ -127,20 +89,24 @@ func (p *GPTParticipant) onTranscriptionReceived(rp *lksdk.RemoteParticipant) fu
 		// Keep track of the conversation inside the room
 		for _, result := range resp.Results {
 			if result.IsFinal {
-				transcript := result.Alternatives[0].Transcript
+				prompt := result.Alternatives[0].Transcript
 
 				go func() {
-					fmt.Printf("answering to %s: %s", rp.SID(), transcript)
-					err := p.Answer(transcript)
-					if err != nil && err != ErrBusy {
-						fmt.Printf("failed to answer: %v", err)
+					// Answer the prompt if the GPTParticipant isn't already being "used"
+					if p.isBusy.CompareAndSwap(false, true) {
+						defer p.isBusy.Store(false)
+						logger.Debugw("answering to", "participant", rp.SID(), "prompt", prompt)
+						err := p.Answer(prompt)
+						if err != nil && err != ErrBusy {
+							logger.Errorw("failed to answer", err, "participant", rp.SID(), "prompt", prompt)
+						}
 					}
 				}()
 
 				sentence := &Sentence{
 					Sid:        rp.SID(),
 					Name:       rp.Name(),
-					Transcript: transcript,
+					Transcript: prompt,
 				}
 
 				p.lock.Lock()
@@ -152,12 +118,6 @@ func (p *GPTParticipant) onTranscriptionReceived(rp *lksdk.RemoteParticipant) fu
 }
 
 func (p *GPTParticipant) Answer(prompt string) error {
-	if !p.isBusy.CompareAndSwap(false, true) {
-		return ErrBusy
-	}
-
-	defer p.isBusy.Store(false)
-
 	p.lock.Lock()
 	tmp := make([]*Sentence, len(p.conversation))
 	copy(tmp, p.conversation)
@@ -165,11 +125,11 @@ func (p *GPTParticipant) Answer(prompt string) error {
 
 	stream, err := p.completion.Complete(context.Background(), tmp, prompt)
 	if err != nil {
-		fmt.Printf("failed to create completion stream %v", err)
+		logger.Errorw("failed to create openai completion stream", err)
 		return err
 	}
 
-	// nil/closed if the last sentence has finished playing (used to guarantee the order of the sentences)
+	// played is nil/closed if the last sentence has finished playing (used to guarantee the order of the sentences)
 	var played chan struct{}
 	var synthesizeWG sync.WaitGroup
 	for {
@@ -179,12 +139,11 @@ func (p *GPTParticipant) Answer(prompt string) error {
 				break
 			}
 
-			fmt.Printf("failed to receive completion stream %v", err)
+			logger.Errorw("failed to receive completion stream", err)
 			return err
 		}
 
-		fmt.Printf("synthesizing %s", sentence)
-
+		logger.Debugw("synthesizing", "sentence", sentence)
 		synthesizeWG.Add(1)
 		tmpPlayed := played
 		currentChan := make(chan struct{})
@@ -194,7 +153,7 @@ func (p *GPTParticipant) Answer(prompt string) error {
 
 			_, err := p.synthesizer.Synthesize(context.Background(), sentence)
 			if err != nil {
-				fmt.Printf("failed to synthesize %v", err)
+				logger.Errorw("failed to synthesize", err, "sentence", sentence)
 				return
 			}
 

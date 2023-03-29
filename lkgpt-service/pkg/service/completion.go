@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 
+	"github.com/livekit/protocol/logger"
 	openai "github.com/sashabaranov/go-openai"
 )
 
@@ -58,7 +58,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 	})
 
 	if err != nil {
-		fmt.Println("error creating chat completion stream:", err)
+		logger.Errorw("error creating chat completion stream", err)
 		return nil, err
 	}
 

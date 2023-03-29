@@ -14,10 +14,11 @@ import (
 	"github.com/urfave/negroni"
 
 	"github.com/livekit/protocol/auth"
+	"github.com/livekit/protocol/logger"
 	"github.com/livekit/protocol/webhook"
 
-	speech "cloud.google.com/go/speech/apiv1"
-	texttospeech "cloud.google.com/go/texttospeech/apiv1"
+	stt "cloud.google.com/go/speech/apiv1"
+	tts "cloud.google.com/go/texttospeech/apiv1"
 	lksdk "github.com/livekit/server-sdk-go"
 	openai "github.com/sashabaranov/go-openai"
 )
@@ -27,8 +28,8 @@ type LiveGPT struct {
 	roomService *lksdk.RoomServiceClient
 	keyProvider *auth.SimpleKeyProvider
 	gptClient   *openai.Client
-	sttClient   *speech.Client
-	ttsClient   *texttospeech.Client
+	sttClient   *stt.Client
+	ttsClient   *tts.Client
 
 	httpServer *http.Server
 	doneChan   chan struct{}
@@ -60,12 +61,12 @@ func (s *LiveGPT) Start() error {
 	}
 
 	ctx := context.Background()
-	sttClient, err := speech.NewClient(ctx)
+	sttClient, err := stt.NewClient(ctx)
 	if err != nil {
 		return err
 	}
 
-	ttsClient, err := texttospeech.NewClient(ctx)
+	ttsClient, err := tts.NewClient(ctx)
 	if err != nil {
 		return err
 	}
@@ -85,9 +86,9 @@ func (s *LiveGPT) Start() error {
 	}
 
 	go func() {
-		fmt.Printf("starting LiveGPT server on port %d", s.config.Port)
+		logger.Infow("starting server", "port", s.config.Port)
 		if err := s.httpServer.Serve(httpListener); err != http.ErrServerClosed {
-			fmt.Printf("error starting server: %v", err)
+			logger.Errorw("error starting server", err)
 			s.Stop()
 		}
 	}()
@@ -114,7 +115,7 @@ func (s *LiveGPT) Stop() {
 func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 	event, err := webhook.ReceiveWebhookEvent(req, s.keyProvider)
 	if err != nil {
-		fmt.Printf("error receiving webhook event: %v", err)
+		logger.Errorw("error receiving webhook event", err)
 		return
 	}
 
@@ -131,14 +132,14 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 
 		jwt, err := token.ToJWT()
 		if err != nil {
-			fmt.Printf("error creating jwt: %v", err)
+			logger.Errorw("error creating jwt", err)
 			return
 		}
 
-		fmt.Printf("connecting gpt participant to %v", s.config.LiveKit.Url)
+		logger.Infow("connecting gpt participant", "room", event.Room.Name)
 		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, s.sttClient, s.ttsClient, s.gptClient)
 		if err != nil {
-			fmt.Printf("error connecting gpt participant: %v", err)
+			logger.Errorw("error connecting gpt participant", err, "room", event.Room.Name)
 			return
 		}
 
