@@ -136,7 +136,7 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		}
 
 		fmt.Printf("connecting gpt participant to %v", s.config.LiveKit.Url)
-		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, s.gptClient)
+		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, s.sttClient, s.ttsClient, s.gptClient)
 		if err != nil {
 			fmt.Printf("error connecting gpt participant: %v", err)
 			return

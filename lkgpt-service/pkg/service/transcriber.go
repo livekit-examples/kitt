@@ -208,8 +208,6 @@ func (t *Transcriber) readStream(wg *sync.WaitGroup, speech speechpb.Speech_Stre
 			return err
 		}
 
-		fmt.Printf("received transcription results: %v", resp)
-
 		t.lock.Lock()
 		onTranscription := t.onTranscription
 		t.lock.Unlock()

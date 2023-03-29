@@ -15,12 +15,14 @@ var (
 )
 
 type ChatCompletion struct {
-	client *openai.Client
+	client   *openai.Client
+	language string
 }
 
-func NewChatCompletion(client *openai.Client) *ChatCompletion {
+func NewChatCompletion(client *openai.Client, language string) *ChatCompletion {
 	return &ChatCompletion{
-		client: client,
+		client:   client,
+		language: language,
 	}
 }
 
@@ -34,6 +36,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 	}
 	conversation := sb.String()
 
+	fmt.Println("Starting ChatStream")
 	stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 		Model: openai.GPT3Dot5Turbo,
 		Messages: []openai.ChatCompletionMessage{
@@ -42,7 +45,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 				Content: "You are a voice assistant named GPT." +
 					"Answer with multiple small/medium sentences with the right punctuation. Only use dot (.) to end a sentence" +
 					"Here is the current conversation, the name of the user is prefixed to each message." +
-					"Answer the user question.",
+					"Answer the user question with the " + LanguageCode + " language.",
 			},
 			{
 				Role:    openai.ChatMessageRoleSystem,
@@ -75,6 +78,7 @@ func (c *ChatStream) Recv() (string, error) {
 	sb := strings.Builder{}
 	for {
 		response, err := c.stream.Recv()
+		fmt.Println("response:", response)
 		if err != nil {
 			content := sb.String()
 			if err == io.EOF && len(strings.TrimSpace(content)) != 0 {
