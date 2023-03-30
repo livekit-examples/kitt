@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -119,7 +120,7 @@ func (p *GPTParticipant) onTranscriptionReceived(rp *lksdk.RemoteParticipant) fu
 						p.lock.Lock()
 						p.conversation = append(p.conversation, &Sentence{
 							Sid:        p.room.LocalParticipant.SID(),
-							Name:       "You",
+							Name:       "LiveGPT",
 							Transcript: answer,
 						})
 						p.lock.Unlock()
@@ -172,8 +173,10 @@ func (p *GPTParticipant) Answer(prompt string) (string, error) {
 		tmpLast := last
 		currentChan := make(chan struct{})
 
+		playWG.Add(1)
 		go func() {
 			defer close(currentChan)
+			defer playWG.Done()
 
 			logger.Debugw("synthesizing", "sentence", sentence)
 			resp, err := p.synthesizer.Synthesize(context.Background(), sentence)
@@ -182,7 +185,12 @@ func (p *GPTParticipant) Answer(prompt string) (string, error) {
 				return
 			}
 
-			if tmpLast == nil {
+			err = os.WriteFile("test.ogg", resp.AudioContent, 0644)
+			if err != nil {
+				logger.Errorw("failed to write file", err, "sentence", sentence)
+			}
+
+			if tmpLast != nil {
 				<-tmpLast // Queue in order
 			}
 

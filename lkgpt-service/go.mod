@@ -2,6 +2,8 @@ module github.com/livekit-examples/livegpt
 
 go 1.19
 
+replace github.com/livekit/server-sdk-go => ../../server-sdk-go/
+
 require (
 	cloud.google.com/go/speech v1.15.0
 	cloud.google.com/go/texttospeech v1.6.0
@@ -40,7 +42,7 @@ require (
 	github.com/jxskiss/base62 v1.1.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.0.0 // indirect
-	github.com/livekit/mediatransportutil v0.0.0-20230130133657-96cfb115473a // indirect
+	github.com/livekit/mediatransportutil v0.0.0-20230326055817-ed569ca13d26 // indirect
 	github.com/mackerelio/go-osstat v0.2.4 // indirect
 	github.com/magefile/mage v1.14.0 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect

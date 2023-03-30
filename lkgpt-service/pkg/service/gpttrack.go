@@ -83,7 +83,9 @@ func (t *GPTTrack) QueueReader(reader io.Reader) error {
 		return err
 	}
 
-	if oggHeader.Channels != 1 {
+	// oggHeader.SampleRate is _not_ the sample rate to use for playback.
+	// see https://www.rfc-editor.org/rfc/rfc7845.html#section-3
+	if oggHeader.Channels != 1 /*|| oggHeader.SampleRate != 48000*/ {
 		return ErrInvalidFormat
 	}
 
@@ -105,6 +107,7 @@ func (p *provider) NextSample() (media.Sample, error) {
 	onComplete := p.onComplete
 	if p.reader == nil && len(p.queue) > 0 {
 		logger.Debugw("switching to next reader")
+		p.lastGranule = 0
 		p.reader = p.queue[0]
 		p.queue = p.queue[1:]
 	}
@@ -126,6 +129,7 @@ func (p *provider) NextSample() (media.Sample, error) {
 				return sample, err
 			}
 		}
+
 		sampleCount := float64(header.GranulePosition - p.lastGranule)
 		p.lastGranule = header.GranulePosition
 
@@ -134,6 +138,7 @@ func (p *provider) NextSample() (media.Sample, error) {
 		if sample.Duration == 0 {
 			sample.Duration = DefaultOpusFrameDuration
 		}
+		logger.Debugw("got sample", "duration", sample.Duration, "size", len(sample.Data))
 
 		return sample, nil
 	}

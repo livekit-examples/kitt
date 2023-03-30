@@ -40,7 +40,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role: openai.ChatMessageRoleSystem,
-				Content: "You are a voice assistant named GPT." +
+				Content: "You are a voice assistant named LiveGPT." +
 					"Answer with multiple small/medium sentences with the right punctuation. Only use dot (.) to end a sentence" +
 					"Here is the current conversation, the name of the user is prefixed to each message." +
 					"Answer the user question with the " + LanguageCode + " language.",
