@@ -6,11 +6,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/livekit-examples/livegpt/pkg/utils"
 	"github.com/livekit/protocol/logger"
 	lksdk "github.com/livekit/server-sdk-go"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media"
-	"github.com/pion/webrtc/v3/pkg/media/oggreader"
 )
 
 var (
@@ -78,7 +78,7 @@ func (t *GPTTrack) OnComplete(f func(err error)) {
 }
 
 func (t *GPTTrack) QueueReader(reader io.Reader) error {
-	oggReader, oggHeader, err := oggreader.NewWith(reader)
+	oggReader, oggHeader, err := utils.NewOggReader(reader)
 	if err != nil {
 		return err
 	}
@@ -94,10 +94,10 @@ func (t *GPTTrack) QueueReader(reader io.Reader) error {
 }
 
 type provider struct {
-	reader      *oggreader.OggReader
+	reader      *utils.OggReader
 	lastGranule uint64
 
-	queue      []*oggreader.OggReader
+	queue      []*utils.OggReader
 	lock       sync.Mutex
 	onComplete func(err error)
 }
@@ -115,7 +115,7 @@ func (p *provider) NextSample() (media.Sample, error) {
 
 	if p.reader != nil {
 		sample := media.Sample{}
-		data, header, err := p.reader.ParseNextPage()
+		data, err := p.reader.ReadPacket()
 		if err != nil {
 			if onComplete != nil {
 				onComplete(err)
@@ -130,14 +130,13 @@ func (p *provider) NextSample() (media.Sample, error) {
 			}
 		}
 
-		sampleCount := float64(header.GranulePosition - p.lastGranule)
-		p.lastGranule = header.GranulePosition
+		duration, err := utils.ParsePacketDuration(data)
+		if err != nil {
+			return sample, err
+		}
 
 		sample.Data = data
-		sample.Duration = time.Duration((sampleCount/48000)*1000) * time.Millisecond
-		if sample.Duration == 0 {
-			sample.Duration = DefaultOpusFrameDuration
-		}
+		sample.Duration = duration
 		logger.Debugw("got sample", "duration", sample.Duration, "size", len(sample.Data))
 
 		return sample, nil
@@ -166,7 +165,7 @@ func (t *provider) OnComplete(f func(err error)) {
 	t.onComplete = f
 }
 
-func (p *provider) QueueReader(reader *oggreader.OggReader) {
+func (p *provider) QueueReader(reader *utils.OggReader) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
