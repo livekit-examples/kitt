@@ -100,6 +100,9 @@ func newWith(in io.Reader, doChecksum bool) (*OggReader, *OggHeader, error) {
 		return nil, nil, err
 	}
 
+	// ignore
+	_, _ = reader.readPage()
+
 	return reader, header, nil
 }
 

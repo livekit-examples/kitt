@@ -137,7 +137,6 @@ func (p *provider) NextSample() (media.Sample, error) {
 
 		sample.Data = data
 		sample.Duration = duration
-		logger.Debugw("got sample", "duration", sample.Duration, "size", len(sample.Data))
 
 		return sample, nil
 	}
