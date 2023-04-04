@@ -36,9 +36,12 @@ import (
 const MaxSpeechStreamDuration = 4 * time.Minute
 
 type Transcriber struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	track        *webrtc.TrackRemote
 	speechClient *stt.Client
-	language     string
+	language     *Language
 
 	onTranscription func(resp *sttpb.StreamingRecognizeResponse)
 	lock            sync.Mutex
@@ -47,14 +50,17 @@ type Transcriber struct {
 	closedChan chan struct{}
 }
 
-func NewTranscriber(track *webrtc.TrackRemote, speechClient *stt.Client, language string) (*Transcriber, error) {
+func NewTranscriber(track *webrtc.TrackRemote, speechClient *stt.Client, language *Language) (*Transcriber, error) {
 	rtpCodec := track.Codec()
 
 	if !strings.EqualFold(rtpCodec.MimeType, "audio/opus") {
 		return nil, errors.New("only opus is supported")
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Transcriber{
+		ctx:          ctx,
+		cancel:       cancel,
 		track:        track,
 		language:     language,
 		speechClient: speechClient,
@@ -84,7 +90,7 @@ loop:
 			return err
 		}
 
-		speech, err := newSpeechStream(context.Background(), t.speechClient, t.language, t.track.Codec())
+		speech, err := t.newSpeechStream()
 		if err != nil {
 			logger.Errorw("failed to create a new speech stream", err)
 			return err
@@ -116,7 +122,6 @@ loop:
 			<-closeChan
 
 			oggWriter.Close()
-			pr.Close()
 			pw.Close()
 
 			wg.Wait()
@@ -143,6 +148,7 @@ loop:
 
 func (t *Transcriber) Stop() {
 	close(t.doneChan)
+	t.cancel()
 	<-t.closedChan
 }
 
@@ -217,23 +223,26 @@ func (t *Transcriber) readStream(wg *sync.WaitGroup, speech sttpb.Speech_Streami
 	}
 }
 
-func newSpeechStream(ctx context.Context, speechClient *stt.Client, language string, rtpCodec webrtc.RTPCodecParameters) (sttpb.Speech_StreamingRecognizeClient, error) {
-	stream, err := speechClient.StreamingRecognize(ctx)
+func (t *Transcriber) newSpeechStream() (sttpb.Speech_StreamingRecognizeClient, error) {
+	stream, err := t.speechClient.StreamingRecognize(t.ctx)
 	if err != nil {
 		return nil, err
 	}
+
+	rtpCodec := t.track.Codec()
 
 	// Send the initial configuration message.
 	if err := stream.Send(&sttpb.StreamingRecognizeRequest{
 		StreamingRequest: &sttpb.StreamingRecognizeRequest_StreamingConfig{
 			StreamingConfig: &sttpb.StreamingRecognitionConfig{
-				InterimResults: true, // Only used for realtime display on client
+				InterimResults:  true, // Only used for realtime display on client
+				SingleUtterance: true,
 				Config: &sttpb.RecognitionConfig{
 					UseEnhanced:       true,
 					Encoding:          sttpb.RecognitionConfig_OGG_OPUS,
 					SampleRateHertz:   int32(rtpCodec.ClockRate),
 					AudioChannelCount: int32(rtpCodec.Channels),
-					LanguageCode:      language,
+					LanguageCode:      t.language.Code,
 				},
 			},
 		},

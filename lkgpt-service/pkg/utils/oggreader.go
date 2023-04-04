@@ -12,7 +12,6 @@ package utils
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 )
 
@@ -241,7 +240,6 @@ func (o *OggReader) ReadPacket() ([]byte, error) {
 
 	// Read the packet
 	packet := make([]byte, packetSize)
-	fmt.Println(len(packet))
 	copy(packet, page.payload[o.offset:o.offset+packetSize])
 	o.offset += packetSize
 

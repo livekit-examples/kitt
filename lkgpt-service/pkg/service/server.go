@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -23,9 +24,9 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-const (
-	BotIdentity = "livegpt"
-)
+type ParticipantMetadata struct {
+	LanguageCode string `json:"languageCode"`
+}
 
 type LiveGPT struct {
 	config      *config.Config
@@ -127,6 +128,8 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		if event.Participant.Identity == BotIdentity {
 			return
 		}
+
+		// TODO(theomonnom): Stateless?
 		// If the GPT participant is not connected, connect it
 		s.participantsLock.Lock()
 		if _, ok := s.participants[event.Room.Name]; ok {
@@ -134,6 +137,17 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 		s.participantsLock.Unlock()
+
+		metadata := ParticipantMetadata{}
+		err := json.Unmarshal([]byte(event.Participant.Metadata), &metadata)
+		if err != nil {
+			return
+		}
+
+		language, ok := Languages[metadata.LanguageCode]
+		if !ok {
+			language = DefaultLanguage
+		}
 
 		token := s.roomService.CreateToken().
 			SetIdentity(BotIdentity).
@@ -149,7 +163,7 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		}
 
 		logger.Infow("connecting gpt participant", "room", event.Room.Name)
-		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, s.sttClient, s.ttsClient, s.gptClient)
+		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, language, s.sttClient, s.ttsClient, s.gptClient)
 		if err != nil {
 			logger.Errorw("error connecting gpt participant", err, "room", event.Room.Name)
 			return

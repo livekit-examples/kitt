@@ -16,10 +16,10 @@ var (
 
 type ChatCompletion struct {
 	client   *openai.Client
-	language string
+	language *Language
 }
 
-func NewChatCompletion(client *openai.Client, language string) *ChatCompletion {
+func NewChatCompletion(client *openai.Client, language *Language) *ChatCompletion {
 	return &ChatCompletion{
 		client:   client,
 		language: language,
@@ -34,20 +34,20 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 		sb.WriteString(s.Transcript)
 		sb.WriteString("\n")
 	}
+
 	conversation := sb.String()
 	stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 		Model: openai.GPT3Dot5Turbo,
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role: openai.ChatMessageRoleSystem,
-				Content: "You are a voice assistant named LiveGPT." +
-					"Answer with multiple small/medium sentences with the right punctuation. Only use dot (.) to end a sentence" +
-					"Here is the current conversation, the name of the user is prefixed to each message." +
-					"Answer the user question with the " + LanguageCode + " language.",
+				Content: "You are an assistant in a meeting called LiveGPT. Read the conversation and answer the questions. " +
+					"Provide your answers as concise as possible. End each sentence with a dot '.'",
 			},
 			{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: conversation,
+				Role: openai.ChatMessageRoleSystem,
+				Content: "The name of the participant is prefixed on each message" +
+					"Here is the converstation (Language " + c.language.Code + "): " + conversation,
 			},
 			{
 				Role:    openai.ChatMessageRoleUser,

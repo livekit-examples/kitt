@@ -9,17 +9,17 @@ import (
 
 type Synthesizer struct {
 	client   *tts.Client
-	language string
+	language *Language
 }
 
-func NewSynthesizer(client *tts.Client, language string) *Synthesizer {
+func NewSynthesizer(client *tts.Client, language *Language) *Synthesizer {
 	return &Synthesizer{
 		client:   client,
 		language: language,
 	}
 }
 
-func (s *Synthesizer) Synthesize(ctx context.Context, ssml string) (resp *ttspb.SynthesizeSpeechResponse, err error) {
+func (s *Synthesizer) Synthesize(ctx context.Context, ssml string) (*ttspb.SynthesizeSpeechResponse, error) {
 	req := &ttspb.SynthesizeSpeechRequest{
 		Input: &ttspb.SynthesisInput{
 			InputSource: &ttspb.SynthesisInput_Ssml{
@@ -27,8 +27,7 @@ func (s *Synthesizer) Synthesize(ctx context.Context, ssml string) (resp *ttspb.
 			},
 		},
 		Voice: &ttspb.VoiceSelectionParams{
-			LanguageCode: s.language,
-			SsmlGender:   ttspb.SsmlVoiceGender_MALE,
+			Name: s.language.SynthesizerModel,
 		},
 		AudioConfig: &ttspb.AudioConfig{
 			AudioEncoding:   ttspb.AudioEncoding_OGG_OPUS,
@@ -36,6 +35,6 @@ func (s *Synthesizer) Synthesize(ctx context.Context, ssml string) (resp *ttspb.
 		},
 	}
 
-	resp, err = s.client.SynthesizeSpeech(ctx, req)
-	return
+	resp, err := s.client.SynthesizeSpeech(ctx, req)
+	return resp, err
 }

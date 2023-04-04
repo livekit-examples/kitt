@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -29,8 +30,7 @@ var (
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	}
-
-	DefaultOpusFrameDuration = 20 * time.Millisecond
+	OpusSilenceFrameDuration = 20 * time.Millisecond
 )
 
 type GPTTrack struct {
@@ -42,6 +42,12 @@ type GPTTrack struct {
 }
 
 func NewGPTTrack() (*GPTTrack, error) {
+	dur, err := utils.ParsePacketDuration(OpusSilenceFrame)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println(dur)
+
 	cap := webrtc.RTPCodecCapability{
 		Channels:  1,
 		MimeType:  webrtc.MimeTypeOpus,
@@ -114,7 +120,6 @@ func (p *provider) NextSample() (media.Sample, error) {
 	p.lock.Unlock()
 
 	if p.reader != nil {
-		sample := media.Sample{}
 		data, err := p.reader.ReadPacket()
 		if err != nil {
 			if onComplete != nil {
@@ -126,25 +131,25 @@ func (p *provider) NextSample() (media.Sample, error) {
 				return p.NextSample()
 			} else {
 				logger.Errorw("failed to parse next page", err)
-				return sample, err
+				return media.Sample{}, err
 			}
 		}
 
 		duration, err := utils.ParsePacketDuration(data)
 		if err != nil {
-			return sample, err
+			return media.Sample{}, err
 		}
 
-		sample.Data = data
-		sample.Duration = duration
-
-		return sample, nil
+		return media.Sample{
+			Data:     data,
+			Duration: duration,
+		}, nil
 	}
 
 	// Otherwise send empty Opus frames
 	return media.Sample{
 		Data:     OpusSilenceFrame,
-		Duration: 20 * time.Millisecond,
+		Duration: OpusSilenceFrameDuration,
 	}, nil
 }
 
