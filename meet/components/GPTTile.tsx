@@ -4,9 +4,12 @@ import {
   ParticipantContextIfNeeded,
   ParticipantName,
   TrackMutedIndicator,
+  useDataChannel,
   useEnsureParticipant,
+  useMediaTrack,
   useParticipantTile,
 } from '@livekit/components-react';
+import { AudioSource } from '@livekit/components-core';
 import { Participant, Track, TrackPublication } from 'livekit-client';
 import React from 'react';
 import { useEffect, useState } from 'react';
@@ -43,49 +46,6 @@ export const defaultConfig: ConfigType = {
   thinkingTargetRange: { start: 4, end: 8 },
   thinkingSpeed: 0.2,
 };
-
-interface PlaybookType {
-  delayToNext: number;
-  state: 'talking' | 'idle' | 'thinking';
-  volume: number;
-}
-
-export let playbook: PlaybookType[] = [];
-
-const getRandomDelay = () => {
-  const minDelayBetweenSteps = 0.04;
-  const maxDelayBetweenSteps = 0.08;
-  return (maxDelayBetweenSteps - minDelayBetweenSteps) * Math.random() + minDelayBetweenSteps;
-};
-
-const populatePlaybook = () => {
-  const count = 50;
-  playbook.push({ state: 'idle', volume: 0, delayToNext: 2 });
-  playbook.push({ state: 'thinking', volume: 0, delayToNext: 5 });
-
-  for (let i = 0; i < count; i++) {
-    playbook.push({ state: 'talking', volume: Math.random(), delayToNext: getRandomDelay() });
-  }
-
-  playbook.push({ state: 'thinking', volume: 0, delayToNext: 5 });
-
-  for (let i = 0; i < count; i++) {
-    playbook.push({ state: 'talking', volume: Math.random(), delayToNext: getRandomDelay() });
-  }
-
-  playbook.push({ state: 'idle', volume: 0, delayToNext: 5 });
-  playbook.push({ state: 'thinking', volume: 0, delayToNext: 5 });
-
-  for (let i = 0; i < count; i++) {
-    playbook.push({ state: 'talking', volume: Math.random(), delayToNext: getRandomDelay() });
-  }
-
-  for (let i = 0; i < count; i++) {
-    playbook.push({ state: 'talking', volume: Math.random(), delayToNext: getRandomDelay() });
-  }
-};
-
-populatePlaybook();
 
 interface SpeakerViewProps {
   state: 'talking' | 'idle' | 'thinking';
@@ -233,54 +193,86 @@ export const AIVisualizer = (props: SpeakerViewProps) => {
   );
 };
 
+enum PacketType {
+  Transcript = 0,
+  State,
+}
+
+enum GPTState {
+  Idle = 0,
+  Loading,
+  Speaking,
+}
+
+interface Packet {
+  type: PacketType;
+  data: TranscriptPacket | StatePacket;
+}
+
+interface TranscriptPacket {
+  sid: string;
+  name: string;
+  transcript: string;
+  isFinal: boolean;
+}
+
+interface StatePacket {
+  state: GPTState;
+}
+
+
 export type GPTTileProps = React.HTMLAttributes<HTMLDivElement> & {
   disableSpeakingIndicator?: boolean;
   participant?: Participant;
-  source?: Track.Source;
+  source?: AudioSource;
   publication?: TrackPublication;
 };
+
+const decoder = new TextDecoder();
 
 export const GPTTile = ({
   participant,
   children,
-  source = Track.Source.Camera,
   publication,
   disableSpeakingIndicator,
   ...htmlProps
 }: GPTTileProps) => {
   const p = useEnsureParticipant(participant);
+  const { message } = useDataChannel();
+  const [state, setState] = React.useState<GPTState>(GPTState.Idle);
 
-  const { elementProps } = useParticipantTile({
+  useEffect(() => {
+    if (!message) {
+      return;
+    }
+
+    const packet = JSON.parse(decoder.decode(message.payload)) as Packet;
+
+    if (packet.type == PacketType.State) {
+      const statePacket = packet.data as StatePacket;
+      setState(statePacket.state);
+    }
+  }, [message]);
+
+  const tile = useParticipantTile({
     participant: p,
     htmlProps,
-    source,
+    source: Track.Source.Microphone,
     publication,
     disableSpeakingIndicator,
   });
 
-  const [playbookIndex, setPlaybookIndex] = useState(0);
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      if (playbookIndex === playbook.length - 1) {
-        setPlaybookIndex(0);
-      } else {
-        setPlaybookIndex(playbookIndex + 1);
-      }
-    }, playbook[playbookIndex].delayToNext * 1000);
-
-    return () => {
-      clearInterval(timeout);
-    };
-  }, [playbookIndex]);
+  const mediaEl = React.useRef<HTMLAudioElement>(null);
+  const track = useMediaTrack(Track.Source.Microphone, p, { element: mediaEl });
 
   return (
-    <div style={{ position: 'relative' }} {...elementProps}>
+    <div style={{ position: 'relative' }} {...tile.elementProps}>
       <ParticipantContextIfNeeded participant={p}>
-        <AudioTrack source={source} publication={publication} participant={participant} />
+        <audio ref={mediaEl} {...track.elementProps}></audio>
         <Box h="100%" bgColor="#000" display="flex" alignItems="center" justifyContent="center">
           <AIVisualizer
-            state={playbook[playbookIndex].state}
-            volume={playbook[playbookIndex].volume}
+            state={state == GPTState.Loading ? 'thinking' : 'talking'}
+            volume={1}
             config={{ ...defaultConfig }}
           />
         </Box>
