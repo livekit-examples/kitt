@@ -11,6 +11,11 @@
   "dependencies": {
     "@livekit/components-react": "0.7.0",
     "@livekit/components-styles": "0.2.1",
+    "@chakra-ui/react": "2.5.3",
+    "@emotion/memoize": "0.8.0",
+    "@emotion/react": "11.10.6",
+    "@emotion/styled": "11.10.6",
+    "framer-motion": "10.9.2",
     "livekit-client": "1.7.1",
     "livekit-server-sdk": "1.1.0",
     "next": "12.3.4",
