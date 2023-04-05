@@ -72,14 +72,15 @@ func ConnectGPTParticipant(url, token string, language *Language, sttClient *stt
 	ctx, cancel := context.WithCancel(context.Background())
 
 	p := &GPTParticipant{
-		ctx:         ctx,
-		cancel:      cancel,
-		sttClient:   sttClient,
-		ttsClient:   ttsClient,
-		gptClient:   gptClient,
-		language:    language,
-		synthesizer: NewSynthesizer(ttsClient, language),
-		completion:  NewChatCompletion(gptClient, language),
+		ctx:          ctx,
+		cancel:       cancel,
+		sttClient:    sttClient,
+		ttsClient:    ttsClient,
+		gptClient:    gptClient,
+		language:     language,
+		transcribers: make(map[string]*Transcriber),
+		synthesizer:  NewSynthesizer(ttsClient, language),
+		completion:   NewChatCompletion(gptClient, language),
 	}
 
 	roomCallback := &lksdk.RoomCallback{
@@ -161,7 +162,7 @@ func (p *GPTParticipant) onTranscriptionReceived(rp *lksdk.RemoteParticipant) fu
 					// Answer the prompt if the GPTParticipant isn't busy
 					logger.Debugw("answering to", "participant", rp.SID(), "prompt", prompt)
 					answer, err := p.Answer(prompt)
-					if err != nil && err != ErrBusy {
+					if err != nil {
 						logger.Errorw("failed to answer", err, "participant", rp.SID(), "prompt", prompt)
 					}
 
@@ -195,6 +196,7 @@ func (p *GPTParticipant) Answer(prompt string) (string, error) {
 	copy(tmp, p.conversation)
 	p.lock.Unlock()
 
+	logger.Debugw("starting completion stream")
 	stream, err := p.completion.Complete(p.ctx, tmp, prompt)
 	if err != nil {
 		return "", err
@@ -212,7 +214,7 @@ func (p *GPTParticipant) Answer(prompt string) (string, error) {
 	for {
 		sentence, err := stream.Recv()
 		if err != nil {
-			if errors.Is(err, io.EOF) {
+			if errors.Is(err, io.EOF) || errors.Is(err, context.Canceled) {
 				break
 			}
 

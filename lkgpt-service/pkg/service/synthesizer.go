@@ -27,7 +27,8 @@ func (s *Synthesizer) Synthesize(ctx context.Context, ssml string) (*ttspb.Synth
 			},
 		},
 		Voice: &ttspb.VoiceSelectionParams{
-			Name: s.language.SynthesizerModel,
+			LanguageCode: s.language.Code,
+			Name:         s.language.SynthesizerModel,
 		},
 		AudioConfig: &ttspb.AudioConfig{
 			AudioEncoding:   ttspb.AudioEncoding_OGG_OPUS,

@@ -42,7 +42,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 			{
 				Role: openai.ChatMessageRoleSystem,
 				Content: "You are an assistant in a meeting called LiveGPT. Read the conversation and answer the questions. " +
-					"Provide your answers as concise as possible. End each sentence with a dot '.'",
+					"Provide your answers as concise as possible. End each sentence with a dot: .",
 			},
 			{
 				Role: openai.ChatMessageRoleSystem,

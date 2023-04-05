@@ -139,9 +139,11 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		s.participantsLock.Unlock()
 
 		metadata := ParticipantMetadata{}
-		err := json.Unmarshal([]byte(event.Participant.Metadata), &metadata)
-		if err != nil {
-			return
+		if event.Participant.Metadata != "" {
+			err := json.Unmarshal([]byte(event.Participant.Metadata), &metadata)
+			if err != nil {
+				return
+			}
 		}
 
 		language, ok := Languages[metadata.LanguageCode]

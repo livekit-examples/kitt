@@ -15,8 +15,9 @@ import (
 	"github.com/livekit/server-sdk-go/pkg/samplebuilder"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v3"
-
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // To achieve endless streaming speech recognition, we need to split the transcribe requests to GCP,
@@ -164,6 +165,9 @@ func (t *Transcriber) readTrack(wg *sync.WaitGroup, closeChan chan struct{}, sb 
 		default:
 			pkt, _, err := t.track.ReadRTP()
 			if err != nil {
+				if err == io.EOF {
+					return nil
+				}
 				return err
 			}
 
@@ -184,7 +188,7 @@ func (t *Transcriber) writeStream(wg *sync.WaitGroup, speech sttpb.Speech_Stream
 	for {
 		n, err := oggReader.Read(buf)
 		if err != nil {
-			if err == io.ErrClosedPipe {
+			if err == io.EOF {
 				return nil
 			}
 			return err
@@ -210,6 +214,9 @@ func (t *Transcriber) readStream(wg *sync.WaitGroup, speech sttpb.Speech_Streami
 	for {
 		resp, err := speech.Recv()
 		if err != nil {
+			if status, ok := status.FromError(err); ok && status.Code() == codes.Canceled {
+				return nil
+			}
 			return err
 		}
 
@@ -235,8 +242,8 @@ func (t *Transcriber) newSpeechStream() (sttpb.Speech_StreamingRecognizeClient, 
 	if err := stream.Send(&sttpb.StreamingRecognizeRequest{
 		StreamingRequest: &sttpb.StreamingRecognizeRequest_StreamingConfig{
 			StreamingConfig: &sttpb.StreamingRecognitionConfig{
-				InterimResults:  true, // Only used for realtime display on client
-				SingleUtterance: true,
+				InterimResults: true, // Only used for realtime display on client
+				//SingleUtterance: true,
 				Config: &sttpb.RecognitionConfig{
 					UseEnhanced:       true,
 					Encoding:          sttpb.RecognitionConfig_OGG_OPUS,

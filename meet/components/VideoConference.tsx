@@ -92,9 +92,9 @@ export function VideoConference({
 								<TrackContext.Consumer>
 									{(track) => {
 										if (track?.participant.sid == BotIdentity) {
-
+											// GPTTile
 										} else {
-
+											// ParticipantTile
 										}
 									}}
 								</TrackContext.Consumer>
