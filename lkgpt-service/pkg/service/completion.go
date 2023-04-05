@@ -2,16 +2,11 @@ package service
 
 import (
 	"context"
-	"errors"
 	"io"
 	"strings"
 
 	"github.com/livekit/protocol/logger"
 	openai "github.com/sashabaranov/go-openai"
-)
-
-var (
-	ErrAlreadyUsed = errors.New("chat completion already used")
 )
 
 type ChatCompletion struct {
@@ -30,9 +25,9 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 	var sb strings.Builder
 	for _, s := range history {
 		sb.WriteString(s.Name)
-		sb.WriteString(": ")
+		sb.WriteString(" said ")
 		sb.WriteString(s.Transcript)
-		sb.WriteString("\n")
+		sb.WriteString("\n\n")
 	}
 
 	conversation := sb.String()
@@ -41,13 +36,12 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role: openai.ChatMessageRoleSystem,
-				Content: "You are an assistant in a meeting called LiveGPT. Read the conversation and answer the questions. " +
-					"Provide your answers as concise as possible. End each sentence with a dot: .",
+				Content: "You are a voice assistant in a meeting named LiveGPT." +
+					"Provide your answers as concise as possible.",
 			},
 			{
-				Role: openai.ChatMessageRoleSystem,
-				Content: "The name of the participant is prefixed on each message" +
-					"Here is the converstation (Language " + c.language.Code + "): " + conversation,
+				Role:    openai.ChatMessageRoleUser,
+				Content: "Here is the history of the conversation:\n" + conversation,
 			},
 			{
 				Role:    openai.ChatMessageRoleUser,

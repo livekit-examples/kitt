@@ -159,6 +159,26 @@ func (p *GPTParticipant) onTranscriptionReceived(rp *lksdk.RemoteParticipant) fu
 
 			go func() {
 				if p.isBusy.CompareAndSwap(false, true) {
+					defer p.isBusy.Store(false)
+
+					// Naive trigger implementation
+					triggerBot := false
+					if len(p.room.GetParticipants()) > 2 {
+						words := strings.Split(prompt, " ")
+						if len(words) >= 4 {
+							triggerWords := strings.ToLower(strings.Join(words[:4], ""))
+							if strings.Contains(triggerWords, "gpt") ||
+								strings.Contains(triggerWords, "livekit") ||
+								strings.Contains(triggerWords, "live-kit") {
+								triggerBot = true
+							}
+						}
+					}
+
+					if !triggerBot {
+						return
+					}
+
 					// Answer the prompt if the GPTParticipant isn't busy
 					logger.Debugw("answering to", "participant", rp.SID(), "prompt", prompt)
 					answer, err := p.Answer(prompt)
@@ -168,11 +188,10 @@ func (p *GPTParticipant) onTranscriptionReceived(rp *lksdk.RemoteParticipant) fu
 
 					p.lock.Lock()
 					p.conversation = append(p.conversation, &Sentence{
-						Name:       BotName,
+						Name:       "Assistant (" + BotName + ")",
 						Transcript: answer,
 					})
 					p.lock.Unlock()
-					p.isBusy.Store(false)
 				}
 			}()
 

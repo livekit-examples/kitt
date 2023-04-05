@@ -242,9 +242,69 @@ func (t *Transcriber) newSpeechStream() (sttpb.Speech_StreamingRecognizeClient, 
 	if err := stream.Send(&sttpb.StreamingRecognizeRequest{
 		StreamingRequest: &sttpb.StreamingRecognizeRequest_StreamingConfig{
 			StreamingConfig: &sttpb.StreamingRecognitionConfig{
-				InterimResults: true, // Only used for realtime display on client
-				//SingleUtterance: true,
+				InterimResults: true,
 				Config: &sttpb.RecognitionConfig{
+					Model: "command_and_search",
+					Adaptation: &sttpb.SpeechAdaptation{
+						PhraseSets: []*sttpb.PhraseSet{
+							{
+								Phrases: []*sttpb.PhraseSet_Phrase{
+									{
+										Value: "${hello} ${gpt}",
+									},
+									{
+										Value: "${gpt}",
+									},
+									{
+										Value: "Hey ${gpt}",
+									},
+								},
+								Boost: 19,
+							},
+						},
+						CustomClasses: []*sttpb.CustomClass{
+							{
+								CustomClassId: "hello",
+								Items: []*sttpb.CustomClass_ClassItem{
+									{
+										Value: "Hi",
+									},
+									{
+										Value: "Hello",
+									},
+									{
+										Value: "Hey",
+									},
+								},
+							},
+							{
+								CustomClassId: "gpt",
+								Items: []*sttpb.CustomClass_ClassItem{
+									{
+										Value: "GPT",
+									},
+									{
+										Value: "Live Kit",
+									},
+									{
+										Value: "Live GPT",
+									},
+									{
+										Value: "LiveKit",
+									},
+									{
+										Value: "LiveGPT",
+									},
+									{
+										Value: "Live-Kit",
+									},
+									{
+										Value: "Live-GPT",
+									},
+								},
+							},
+						},
+					},
 					UseEnhanced:       true,
 					Encoding:          sttpb.RecognitionConfig_OGG_OPUS,
 					SampleRateHertz:   int32(rtpCodec.ClockRate),
