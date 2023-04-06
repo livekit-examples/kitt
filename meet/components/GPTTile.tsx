@@ -8,11 +8,11 @@ import {
   useMediaTrack,
   useParticipantTile,
 } from '@livekit/components-react';
-import { AudioSource } from '@livekit/components-core';
-import { Participant, Track, TrackPublication } from 'livekit-client';
+import { Participant, Track } from 'livekit-client';
 import React from 'react';
 import { useEffect, useState } from 'react';
 import { Box, Flex } from '@chakra-ui/react';
+import { GPTState, Packet, PacketType, StatePacket } from '../lib/packet';
 
 export interface ConfigType {
   columnWidth: string;
@@ -179,38 +179,12 @@ export const AIVisualizer = (props: SpeakerViewProps) => {
   );
 };
 
-enum PacketType {
-  Transcript = 0,
-  State,
-}
-
-enum GPTState {
-  Idle = 0,
-  Loading,
-  Speaking,
-}
-
-interface Packet {
-  type: PacketType;
-  data: TranscriptPacket | StatePacket;
-}
-
-interface TranscriptPacket {
-  sid: string;
-  name: string;
-  transcript: string;
-  isFinal: boolean;
-}
-
-interface StatePacket {
-  state: GPTState;
-}
-
 export type GPTTileProps = React.HTMLAttributes<HTMLDivElement> & {
   participant?: Participant;
 };
 
 const decoder = new TextDecoder();
+
 export const GPTTile = ({
   participant,
   ...htmlProps
@@ -252,6 +226,7 @@ export const GPTTile = ({
     const source = ctx.createMediaStreamSource(track.track?.mediaStream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 32;
+    analyser.smoothingTimeConstant = 0;
     source.connect(analyser);
 
     const bufferLength = analyser.frequencyBinCount;
@@ -287,7 +262,7 @@ export const GPTTile = ({
               barCounts: [3, 7, 11, 7, 3],
               barGap: '0.375rem',
               backgroundColor: '#FF6352',
-              inactiveBackgroundColor: 'rgba(255, 255, 255, 0.05)',
+              inactiveBackgroundColor: 'rgba(255, 255, 255, 0.06)',
               boxShadow: '0px 0px 10px #E64938',
               thinkingStartRange: { start: -4, end: 0 },
               thinkingTargetRange: { start: 4, end: 8 },

@@ -28,7 +28,7 @@ const Home = ({ tabIndex }: InferGetServerSidePropsType<typeof getServerSideProp
           </h2>
         </div>
         <div className={styles.tabContent}>
-          <p style={{ marginTop: 0 }}>Try it now by creating a new room!g</p>
+          <p style={{ marginTop: 0 }}>Try it now by creating a new room!</p>
           <button className="lk-button" onClick={startMeeting}>
             Start Meeting
           </button>

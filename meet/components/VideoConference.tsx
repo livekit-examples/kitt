@@ -23,6 +23,7 @@ import { Track } from 'livekit-client';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { usePinnedTracks } from '../hooks/usePinnedTracks';
 import { GPTTile } from './GPTTile';
+import { Transcriber } from './Transcriber';
 
 const BotIdentity = 'livegpt';
 
@@ -31,10 +32,6 @@ export interface VideoConferenceProps extends React.HTMLAttributes<HTMLDivElemen
 }
 
 export function VideoConference({ chatMessageFormatter, ...props }: VideoConferenceProps) {
-  const [widgetState, setWidgetState] = React.useState<WidgetState>({
-    showChat: false,
-  });
-
   const isMobile = useMediaQuery(`(max-width: 660px)`);
 
   const tracks = useTracks(
@@ -70,7 +67,7 @@ export function VideoConference({ chatMessageFormatter, ...props }: VideoConfere
 
   return (
     <div className="lk-video-conference" {...props}>
-      <LayoutContextProvider value={layoutContext} onWidgetChange={setWidgetState}>
+      <LayoutContextProvider value={layoutContext}>
         <div className="lk-video-conference-inner">
           {!focusTrack ? (
             <div className="lk-grid-layout-wrapper">
@@ -97,6 +94,7 @@ export function VideoConference({ chatMessageFormatter, ...props }: VideoConfere
           <ControlBar variation={isMobile ? 'minimal' : 'verbose'} />
         </div>
       </LayoutContextProvider>
+      <Transcriber/>
       <RoomAudioRenderer />
       <ConnectionStateToast />
     </div>
