@@ -3,7 +3,6 @@ import { useDataChannel } from '@livekit/components-react';
 import { useEffect, useState } from 'react';
 import { Packet, PacketType, TranscriptPacket } from '../lib/packet';
 
-const decoder = new TextDecoder();
 
 export const Transcriber = () => {
   const { message } = useDataChannel();
@@ -14,6 +13,7 @@ export const Transcriber = () => {
   useEffect(() => {
     if (!message) return;
 
+    const decoder = new TextDecoder();
     const packet = JSON.parse(decoder.decode(message.payload)) as Packet;
     if (packet.type == PacketType.Transcript) {
       const transcriptPacket = packet.data as TranscriptPacket;

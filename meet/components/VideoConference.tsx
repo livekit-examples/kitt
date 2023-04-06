@@ -24,6 +24,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 import { usePinnedTracks } from '../hooks/usePinnedTracks';
 import { GPTTile } from './GPTTile';
 import { Transcriber } from './Transcriber';
+import { ErrorMessage } from './ErrorMessage';
 
 const BotIdentity = 'livegpt';
 
@@ -94,7 +95,8 @@ export function VideoConference({ chatMessageFormatter, ...props }: VideoConfere
           <ControlBar variation={isMobile ? 'minimal' : 'verbose'} />
         </div>
       </LayoutContextProvider>
-      <Transcriber/>
+      <ErrorMessage />
+      <Transcriber />
       <RoomAudioRenderer />
       <ConnectionStateToast />
     </div>

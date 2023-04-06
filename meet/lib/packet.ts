@@ -1,6 +1,7 @@
 export enum PacketType {
   Transcript = 0,
   State,
+  Error,
 }
 
 export enum GPTState {
@@ -11,7 +12,7 @@ export enum GPTState {
 
 export interface Packet {
   type: PacketType;
-  data: TranscriptPacket | StatePacket;
+  data: TranscriptPacket | StatePacket | ErrorPacket;
 }
 
 export interface Duration {
@@ -31,3 +32,6 @@ export interface StatePacket {
   state: GPTState;
 }
 
+export interface ErrorPacket {
+  message: string;
+}

@@ -56,7 +56,6 @@ func NewLiveGPT(config *config.Config) *LiveGPT {
 }
 
 func (s *LiveGPT) Start() error {
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/webhook", s.webhookHandler)
 	mux.HandleFunc("/", s.healthCheckHandler)

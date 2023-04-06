@@ -241,6 +241,7 @@ func (p *GPTParticipant) Answer(prompt string) (string, error) {
 				break
 			}
 
+			_ = p.sendErrorPacket("An error occured while communicating with OpenAI.")
 			return "", err
 		}
 
@@ -258,6 +259,7 @@ func (p *GPTParticipant) Answer(prompt string) (string, error) {
 			resp, err := p.synthesizer.Synthesize(p.ctx, sentence)
 			if err != nil {
 				logger.Errorw("failed to synthesize", err, "sentence", sentence)
+				_ = p.sendErrorPacket("An error occured while synthesizing voice data using Google TTS")
 				return
 			}
 
@@ -300,6 +302,7 @@ type packetType int32
 const (
 	packet_Transcript packetType = 0
 	packet_State      packetType = 1
+	packet_Error      packetType = 2 // Show an error message to the user screen
 )
 
 type gptState int32
@@ -326,6 +329,10 @@ type statePacket struct {
 	State gptState `json:"state"`
 }
 
+type errorPacket struct {
+	Message string `json:"message"`
+}
+
 func (p *GPTParticipant) sendPacket(packet *packet) error {
 	data, err := json.Marshal(packet)
 	if err != nil {
@@ -340,6 +347,15 @@ func (p *GPTParticipant) sendStatePacket(state gptState) error {
 		Type: packet_State,
 		Data: &statePacket{
 			State: state,
+		},
+	})
+}
+
+func (p *GPTParticipant) sendErrorPacket(message string) error {
+	return p.sendPacket(&packet{
+		Type: packet_Error,
+		Data: &errorPacket{
+			Message: message,
 		},
 	})
 }
