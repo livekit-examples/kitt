@@ -1,13 +1,11 @@
 package service
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"io"
 	"strings"
 	"sync"
-	"time"
 
 	stt "cloud.google.com/go/speech/apiv1"
 	sttpb "cloud.google.com/go/speech/apiv1/speechpb"
@@ -16,25 +14,7 @@ import (
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
-
-// To achieve endless streaming speech recognition, we need to split the transcribe requests to GCP,
-// otherwise, the duration is limited to ~5 minutes.
-// https://cloud.google.com/speech-to-text/docs/endless-streaming-tutorial
-//
-// When the speech stream is available:
-// 1. Listen to RTP packets
-// 2. Sample opus packets from the RTP packets
-// 3. Write the opus packets to an OGG container
-// 4. Send the OGG data to GCP
-//
-// Otherwise:
-// 1. Try to recreate a new speech stream
-// 2. Wait 4.5 minutes and close the stream
-
-const MaxSpeechStreamDuration = 4 * time.Minute
 
 type Transcriber struct {
 	ctx    context.Context
@@ -47,7 +27,6 @@ type Transcriber struct {
 	onTranscription func(resp *sttpb.StreamingRecognizeResponse)
 	lock            sync.Mutex
 
-	doneChan   chan struct{}
 	closedChan chan struct{}
 }
 
@@ -65,7 +44,6 @@ func NewTranscriber(track *webrtc.TrackRemote, speechClient *stt.Client, languag
 		track:        track,
 		language:     language,
 		speechClient: speechClient,
-		doneChan:     make(chan struct{}),
 		closedChan:   make(chan struct{}),
 	}, nil
 }
@@ -77,240 +55,169 @@ func (t *Transcriber) OnTranscriptionReceived(f func(resp *sttpb.StreamingRecogn
 }
 
 func (t *Transcriber) Start() error {
-	// Create a new stream each 4 minutes
-loop:
+	oggReader, pw := io.Pipe()
+	sampleBuilder := samplebuilder.New(200, &codecs.OpusPacket{}, t.track.Codec().ClockRate)
+
+	go func() {
+		// Read RTP packets from the track
+		oggWriter, err := oggwriter.NewWith(pw, t.track.Codec().ClockRate, t.track.Codec().Channels)
+		if err != nil {
+			logger.Errorw("failed to create ogg writer", err)
+			return
+		}
+
+		for {
+			select {
+			case <-t.closedChan:
+				return
+			default:
+				pkt, _, err := t.track.ReadRTP()
+				if err != nil {
+					return
+				}
+
+				sampleBuilder.Push(pkt)
+				for _, p := range sampleBuilder.PopPackets() {
+					oggWriter.WriteRTP(p)
+				}
+			}
+		}
+	}()
+
+streamLoop:
 	for {
+		logger.Infow("creating a new speech stream")
+
 		closeChan := make(chan struct{})
-		pr, pw := io.Pipe()
-		sb := samplebuilder.New(200, &codecs.OpusPacket{}, t.track.Codec().ClockRate)
-		oggReader, bpw := bufio.NewReader(pr), bufio.NewWriter(pw)
-		oggWriter, err := oggwriter.NewWith(bpw, t.track.Codec().ClockRate, t.track.Codec().Channels)
-
+		stream, err := t.newStream()
 		if err != nil {
-			logger.Errorw("failed to create a new ogg writer", err)
 			return err
 		}
 
-		speech, err := t.newSpeechStream()
-		if err != nil {
-			logger.Errorw("failed to create a new speech stream", err)
-			return err
-		}
-
-		cycleChan := make(chan struct{}) // closed when the stream is done
 		go func() {
-			wg := sync.WaitGroup{}
-			wg.Add(3)
+			// Forward track packets to the speech stream
+			buf := make([]byte, 1024)
+		forwardLoop:
+			for {
+				select {
+				case <-closeChan:
+					break
+				default:
+					n, err := oggReader.Read(buf)
+					if err != nil {
+						if err != io.EOF {
+							logger.Errorw("failed to read from ogg reader", err)
+						}
+						break forwardLoop
+					}
 
-			go func() {
-				if err := t.readTrack(&wg, closeChan, sb, oggWriter); err != nil {
-					logger.Errorw("failed to read track", err)
+					if n <= 0 {
+						// No data
+						continue
+					}
+
+					// Forward to speech stream
+					if err := stream.Send(&sttpb.StreamingRecognizeRequest{
+						StreamingRequest: &sttpb.StreamingRecognizeRequest_AudioContent{
+							AudioContent: buf[:n],
+						},
+					}); err != nil {
+						logger.Errorw("failed to send audio content to speech stream", err)
+						break forwardLoop
+					}
 				}
-			}()
-
-			go func() {
-				if err := t.writeStream(&wg, speech, oggReader); err != nil {
-					logger.Errorw("failed to write stt stream", err)
-				}
-			}()
-
-			go func() {
-				if err := t.readStream(&wg, speech); err != nil {
-					logger.Errorw("failed to read stt stream", err)
-				}
-			}()
-
-			<-closeChan
-
-			oggWriter.Close()
-			pw.Close()
-
-			wg.Wait()
-			close(cycleChan)
+			}
 		}()
 
-		select {
-		case <-time.After(MaxSpeechStreamDuration):
-			close(closeChan)
-			<-cycleChan
-			break
-		case <-t.doneChan:
-			close(closeChan)
-			<-cycleChan
-			break loop
-		}
-	}
+		for {
+			// Read transcription results
+			resp, err := stream.Recv()
+			if err != nil {
+				if err == io.EOF {
+					// Create a new speech stream
+					break
+				}
 
-	<-t.doneChan
+				logger.Errorw("failed to receive response from speech stream", err)
+				break streamLoop
+			}
+			// TODO(theomonnom): Use channel
+			t.lock.Lock()
+			onTranscription := t.onTranscription
+			t.lock.Unlock()
+
+			if onTranscription != nil {
+				onTranscription(resp)
+			}
+
+		}
+
+		close(closeChan)
+	}
 
 	close(t.closedChan)
 	return nil
 }
 
 func (t *Transcriber) Stop() {
-	close(t.doneChan)
 	t.cancel()
 	<-t.closedChan
 }
 
-// Read the RTP packets from the track
-// Create opus samples and put them inside an ogg container
-func (t *Transcriber) readTrack(wg *sync.WaitGroup, closeChan chan struct{}, sb *samplebuilder.SampleBuilder, oggWriter *oggwriter.OggWriter) error {
-	defer wg.Done()
-
-	for {
-		select {
-		case <-closeChan:
-			return nil
-		default:
-			pkt, _, err := t.track.ReadRTP()
-			if err != nil {
-				if err == io.EOF {
-					return nil
-				}
-				return err
-			}
-
-			sb.Push(pkt)
-
-			for _, p := range sb.PopPackets() {
-				oggWriter.WriteRTP(p)
-			}
-		}
-	}
-}
-
-// Forward the ogg data to Speech To Text API
-func (t *Transcriber) writeStream(wg *sync.WaitGroup, speech sttpb.Speech_StreamingRecognizeClient, oggReader *bufio.Reader) error {
-	defer wg.Done()
-
-	buf := make([]byte, 1024)
-	for {
-		n, err := oggReader.Read(buf)
-		if err != nil {
-			if err == io.EOF {
-				return nil
-			}
-			return err
-		}
-		if n > 0 {
-			if err := speech.Send(&sttpb.StreamingRecognizeRequest{
-				StreamingRequest: &sttpb.StreamingRecognizeRequest_AudioContent{
-					AudioContent: buf[:n],
-				},
-			}); err != nil {
-				return err
-			}
-
-		}
-	}
-}
-
-// Read the responses from Google
-// It includes estimation with the stability score and the final result
-func (t *Transcriber) readStream(wg *sync.WaitGroup, speech sttpb.Speech_StreamingRecognizeClient) error {
-	defer wg.Done()
-
-	for {
-		resp, err := speech.Recv()
-		if err != nil {
-			if status, ok := status.FromError(err); ok && status.Code() == codes.Canceled {
-				return nil
-			}
-			return err
-		}
-
-		t.lock.Lock()
-		onTranscription := t.onTranscription
-		t.lock.Unlock()
-
-		if onTranscription != nil {
-			onTranscription(resp)
-		}
-	}
-}
-
-func (t *Transcriber) newSpeechStream() (sttpb.Speech_StreamingRecognizeClient, error) {
+func (t *Transcriber) newStream() (sttpb.Speech_StreamingRecognizeClient, error) {
 	stream, err := t.speechClient.StreamingRecognize(t.ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	rtpCodec := t.track.Codec()
+	config := &sttpb.RecognitionConfig{
+		Model: "command_and_search",
+		Adaptation: &sttpb.SpeechAdaptation{
+			PhraseSets: []*sttpb.PhraseSet{
+				{
+					Phrases: []*sttpb.PhraseSet_Phrase{
+						{Value: "${hello} ${gpt}"},
+						{Value: "${gpt}"},
+						{Value: "Hey ${gpt}"},
+					},
+					Boost: 19,
+				},
+			},
+			CustomClasses: []*sttpb.CustomClass{
+				{
+					CustomClassId: "hello",
+					Items: []*sttpb.CustomClass_ClassItem{
+						{Value: "Hi"},
+						{Value: "Hello"},
+						{Value: "Hey"},
+					},
+				},
+				{
+					CustomClassId: "gpt",
+					Items: []*sttpb.CustomClass_ClassItem{
+						{Value: "GPT"},
+						{Value: "Live Kit"},
+						{Value: "Live GPT"},
+						{Value: "LiveKit"},
+						{Value: "LiveGPT"},
+						{Value: "Live-Kit"},
+						{Value: "Live-GPT"},
+					},
+				},
+			},
+		},
+		UseEnhanced:       true,
+		Encoding:          sttpb.RecognitionConfig_OGG_OPUS,
+		SampleRateHertz:   int32(t.track.Codec().ClockRate),
+		AudioChannelCount: int32(t.track.Codec().Channels),
+		LanguageCode:      t.language.Code,
+	}
 
-	// Send the initial configuration message.
 	if err := stream.Send(&sttpb.StreamingRecognizeRequest{
 		StreamingRequest: &sttpb.StreamingRecognizeRequest_StreamingConfig{
 			StreamingConfig: &sttpb.StreamingRecognitionConfig{
 				InterimResults: true,
-				Config: &sttpb.RecognitionConfig{
-					Model: "command_and_search",
-					Adaptation: &sttpb.SpeechAdaptation{
-						PhraseSets: []*sttpb.PhraseSet{
-							{
-								Phrases: []*sttpb.PhraseSet_Phrase{
-									{
-										Value: "${hello} ${gpt}",
-									},
-									{
-										Value: "${gpt}",
-									},
-									{
-										Value: "Hey ${gpt}",
-									},
-								},
-								Boost: 19,
-							},
-						},
-						CustomClasses: []*sttpb.CustomClass{
-							{
-								CustomClassId: "hello",
-								Items: []*sttpb.CustomClass_ClassItem{
-									{
-										Value: "Hi",
-									},
-									{
-										Value: "Hello",
-									},
-									{
-										Value: "Hey",
-									},
-								},
-							},
-							{
-								CustomClassId: "gpt",
-								Items: []*sttpb.CustomClass_ClassItem{
-									{
-										Value: "GPT",
-									},
-									{
-										Value: "Live Kit",
-									},
-									{
-										Value: "Live GPT",
-									},
-									{
-										Value: "LiveKit",
-									},
-									{
-										Value: "LiveGPT",
-									},
-									{
-										Value: "Live-Kit",
-									},
-									{
-										Value: "Live-GPT",
-									},
-								},
-							},
-						},
-					},
-					UseEnhanced:       true,
-					Encoding:          sttpb.RecognitionConfig_OGG_OPUS,
-					SampleRateHertz:   int32(rtpCodec.ClockRate),
-					AudioChannelCount: int32(rtpCodec.Channels),
-					LanguageCode:      t.language.Code,
-				},
+				Config:         config,
 			},
 		},
 	}); err != nil {

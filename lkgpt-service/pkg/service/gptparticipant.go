@@ -116,7 +116,7 @@ func ConnectGPTParticipant(url, token string, language *Language, sttClient *stt
 }
 
 func (p *GPTParticipant) trackPublished(publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
-	if publication.Source() != livekit.TrackSource_MICROPHONE {
+	if publication.Source() != livekit.TrackSource_MICROPHONE || rp.Identity() == BotIdentity {
 		return
 	}
 
