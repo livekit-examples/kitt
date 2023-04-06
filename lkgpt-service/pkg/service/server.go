@@ -56,9 +56,14 @@ func NewLiveGPT(config *config.Config) *LiveGPT {
 }
 
 func (s *LiveGPT) Start() error {
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/webhook", s.webhookHandler)
+	mux.HandleFunc("/", s.healthCheckHandler)
+
 	n := negroni.New()
 	n.Use(negroni.NewRecovery())
-	n.UseHandlerFunc(s.webhookHandler)
+	n.UseHandler(mux)
 
 	s.httpServer = &http.Server{
 		Addr:    fmt.Sprintf(":%d", s.config.Port),
@@ -186,4 +191,9 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 			}
 		}
 	}
+}
+
+func (s *LiveGPT) healthCheckHandler(w http.ResponseWriter, req *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("OK"))
 }
