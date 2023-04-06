@@ -164,7 +164,7 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		logger.Infow("connecting gpt participant", "room", event.Room.Name)
+		logger.Infow("connecting gpt participant", "room", event.Room.Name, "language", language.Code)
 		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, language, s.sttClient, s.ttsClient, s.gptClient)
 		if err != nil {
 			logger.Errorw("error connecting gpt participant", err, "room", event.Room.Name)

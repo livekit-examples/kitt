@@ -1,40 +1,31 @@
-import type { NextPage, GetServerSideProps, InferGetServerSidePropsType } from 'next';
 import { useRouter } from 'next/router';
-import React, { ReactElement, useCallback, useEffect, useState } from 'react';
+import React, { useRef } from 'react';
 import styles from '../styles/Home.module.css';
 
-export const getServerSideProps: GetServerSideProps<{ tabIndex: number }> = async ({
-  query,
-  res,
-}) => {
-  res.setHeader('Cache-Control', 'public, max-age=7200');
-  const tabIndex = query.tab === 'custom' ? 1 : 0;
-  return { props: { tabIndex } };
-};
-
-const Home = ({ tabIndex }: InferGetServerSidePropsType<typeof getServerSideProps>) => {
+const Home = () => {
   const router = useRouter();
+  const ref = useRef<HTMLSelectElement>(null);
   const startMeeting = () => {
-    router.push(`/rooms/${generateRoomId()}`);
+    router.push({ pathname: `/rooms/${generateRoomId()}`, query: { languageCode: ref.current?.value } });
   };
 
   return (
-    <>
-      <main className={styles.main} data-lk-theme="default">
-        <div className="header">
-          <img src="/images/livekit-meet-home.svg" alt="LiveKit Meet" width="360" height="45" />
-          <h2>
-            LiveGPT app built using LiveKit Cloud and ChatGPT.
-          </h2>
-        </div>
-        <div className={styles.tabContent}>
-          <p style={{ marginTop: 0 }}>Try it now by creating a new room!</p>
-          <button className="lk-button" onClick={startMeeting}>
-            Start Meeting
-          </button>
-        </div>
-      </main>
-    </>
+    <main className={styles.main} data-lk-theme="default">
+      <div className="header">
+        {<img src="/images/livekit-meet-home.svg" alt="LiveKit Meet" width="360" height="45" />}
+        <h2>Use ChatGPT with LiveKit</h2>
+      </div>
+      <div className={styles.startContainer}>
+        <p style={{ marginTop: 0 }}>Try it now by creating a new room. Choose the language of the bot:</p>
+        <select ref={ref} className={styles.startSelect}>
+          <option value="en-US">English (United States)</option>
+          <option value="fr-FR">Français (France)</option>
+        </select>
+        <button className="lk-button" onClick={startMeeting}>
+          Start Meeting
+        </button>
+      </div>
+    </main>
   );
 };
 

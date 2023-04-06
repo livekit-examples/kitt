@@ -32,7 +32,10 @@ var (
 			Code:             "en-US",
 			SynthesizerModel: "en-US-News-N",
 		},
-		"fr-FR": {},
+		"fr-FR": {
+			Code:             "fr-FR",
+			SynthesizerModel: "fr-FR-Wavenet-B",
+		},
 	}
 	DefaultLanguage = Languages["en-US"]
 )
