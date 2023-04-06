@@ -162,8 +162,9 @@ func (p *GPTParticipant) onTranscriptionReceived(rp *lksdk.RemoteParticipant) fu
 					defer p.isBusy.Store(false)
 
 					// Naive trigger implementation
-					triggerBot := false
+					triggerBot := true
 					if len(p.room.GetParticipants()) > 2 {
+						triggerBot = false
 						words := strings.Split(prompt, " ")
 						if len(words) >= 4 {
 							triggerWords := strings.ToLower(strings.Join(words[:4], ""))

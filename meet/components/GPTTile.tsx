@@ -1,5 +1,4 @@
 import {
-  AudioTrack,
   ConnectionQualityIndicator,
   ParticipantContextIfNeeded,
   ParticipantName,
@@ -33,19 +32,6 @@ export interface ConfigType {
   };
   thinkingSpeed: number;
 }
-
-export const defaultConfig: ConfigType = {
-  columnWidth: '2.25rem',
-  barHeight: '0.375rem',
-  barCounts: [3, 7, 11, 7, 3],
-  barGap: '0.375rem',
-  backgroundColor: '#FF6352',
-  inactiveBackgroundColor: 'rgba(255, 255, 255, 0.05)',
-  boxShadow: '0px 0px 10px #E64938',
-  thinkingStartRange: { start: -4, end: 0 },
-  thinkingTargetRange: { start: 4, end: 8 },
-  thinkingSpeed: 0.2,
-};
 
 interface SpeakerViewProps {
   state: 'talking' | 'idle' | 'thinking';
@@ -220,25 +206,19 @@ interface StatePacket {
   state: GPTState;
 }
 
-
 export type GPTTileProps = React.HTMLAttributes<HTMLDivElement> & {
-  disableSpeakingIndicator?: boolean;
   participant?: Participant;
-  source?: AudioSource;
-  publication?: TrackPublication;
 };
 
 const decoder = new TextDecoder();
-
 export const GPTTile = ({
   participant,
-  children,
-  publication,
-  disableSpeakingIndicator,
   ...htmlProps
 }: GPTTileProps) => {
   const p = useEnsureParticipant(participant);
   const { message } = useDataChannel();
+
+  const [volume, setVolume] = React.useState(0);
   const [state, setState] = React.useState<GPTState>(GPTState.Idle);
 
   useEffect(() => {
@@ -258,22 +238,61 @@ export const GPTTile = ({
     participant: p,
     htmlProps,
     source: Track.Source.Microphone,
-    publication,
-    disableSpeakingIndicator,
   });
 
-  const mediaEl = React.useRef<HTMLAudioElement>(null);
-  const track = useMediaTrack(Track.Source.Microphone, p, { element: mediaEl });
+  const audio = React.useRef<HTMLAudioElement>(null);
+  const track = useMediaTrack(Track.Source.Microphone, p, { element: audio });
+
+  useEffect(() => {
+    if (!track.track?.mediaStream) {
+      return;
+    }
+
+    const ctx = new AudioContext();
+    const source = ctx.createMediaStreamSource(track.track?.mediaStream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 32;
+    source.connect(analyser);
+
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const updateVolume = () => {
+      analyser.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for (const a of dataArray)
+        sum += a * a;
+      setVolume(Math.sqrt(sum / dataArray.length) / 255);
+    };
+
+    const interval = setInterval(updateVolume, 1000 / 30);
+
+    return () => {
+      source.disconnect();
+      clearInterval(interval);
+    }
+  }, [track.track?.mediaStream]);
 
   return (
     <div style={{ position: 'relative' }} {...tile.elementProps}>
       <ParticipantContextIfNeeded participant={p}>
-        <audio ref={mediaEl} {...track.elementProps}></audio>
+        <audio ref={audio} {...track.elementProps}></audio>
         <Box h="100%" bgColor="#000" display="flex" alignItems="center" justifyContent="center">
           <AIVisualizer
             state={state == GPTState.Loading ? 'thinking' : 'talking'}
-            volume={1}
-            config={{ ...defaultConfig }}
+            volume={volume}
+            config={{
+              columnWidth: '2.25rem',
+              barHeight: '0.375rem',
+              barCounts: [3, 7, 11, 7, 3],
+              barGap: '0.375rem',
+              backgroundColor: '#FF6352',
+              inactiveBackgroundColor: 'rgba(255, 255, 255, 0.05)',
+              boxShadow: '0px 0px 10px #E64938',
+              thinkingStartRange: { start: -4, end: 0 },
+              thinkingTargetRange: { start: 4, end: 8 },
+              thinkingSpeed: 0.2,
+            }}
           />
         </Box>
         <div className="lk-participant-metadata">
@@ -281,7 +300,7 @@ export const GPTTile = ({
             <TrackMutedIndicator
               source={Track.Source.Microphone}
               show={'muted'}
-            ></TrackMutedIndicator>
+            />
             <ParticipantName />
           </div>
           <ConnectionQualityIndicator className="lk-participant-metadata-item" />

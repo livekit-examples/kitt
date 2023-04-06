@@ -78,7 +78,7 @@ export function VideoConference({ chatMessageFormatter, ...props }: VideoConfere
                 <TrackContext.Consumer>
                   {(track) =>
                     track?.participant.identity == BotIdentity ? (
-                      <GPTTile {...track} />
+                      <GPTTile participant={track.participant} />
                     ) : (
                       <ParticipantTile {...track} />
                     )
@@ -94,12 +94,8 @@ export function VideoConference({ chatMessageFormatter, ...props }: VideoConfere
               </FocusLayoutContainer>
             </div>
           )}
-          <ControlBar variation={isMobile ? 'minimal' : 'verbose'} controls={{ chat: true }} />
+          <ControlBar variation={isMobile ? 'minimal' : 'verbose'} />
         </div>
-        <Chat
-          style={{ display: widgetState.showChat ? 'flex' : 'none' }}
-          messageFormatter={chatMessageFormatter}
-        />
       </LayoutContextProvider>
       <RoomAudioRenderer />
       <ConnectionStateToast />
