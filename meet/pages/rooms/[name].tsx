@@ -5,13 +5,12 @@ import {
   useToken,
   formatChatMessageLinks,
 } from '@livekit/components-react';
-import { LogLevel, RoomOptions, VideoPresets } from 'livekit-client';
+import { RoomOptions, VideoPresets } from 'livekit-client';
 
 import type { NextPage } from 'next';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useMemo, useState } from 'react';
-import { DebugMode } from '../../lib/debug';
 import { useServerUrl } from '../../lib/client-utils';
 import { VideoConference } from '../../components/VideoConference';
 
@@ -114,7 +113,6 @@ const ActiveRoom = ({ roomName, userChoices, onLeave, languageCode }: ActiveRoom
           onDisconnected={onLeave}
         >
           <VideoConference chatMessageFormatter={formatChatMessageLinks} />
-          <DebugMode logLevel={LogLevel.info} />
         </LiveKitRoom>
       )}
     </>

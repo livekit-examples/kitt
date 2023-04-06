@@ -2,8 +2,6 @@ module github.com/livekit-examples/livegpt
 
 go 1.19
 
-replace github.com/livekit/server-sdk-go => ../../server-sdk-go/
-
 require (
 	cloud.google.com/go/speech v1.15.0
 	cloud.google.com/go/texttospeech v1.6.0
@@ -14,6 +12,7 @@ require (
 	github.com/sashabaranov/go-openai v1.5.7
 	github.com/urfave/cli/v2 v2.25.1
 	github.com/urfave/negroni v1.0.0
+	google.golang.org/grpc v1.53.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -83,7 +82,6 @@ require (
 	google.golang.org/api v0.114.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20230320184635-7606e756e683 // indirect
-	google.golang.org/grpc v1.53.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 )
