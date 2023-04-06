@@ -44,7 +44,7 @@ type LiveGPT struct {
 	participants     map[string]*GPTParticipant
 }
 
-func NewLiveGPT(config *config.Config) *LiveGPT {
+func NewLiveGPT(config *config.Config, sttClient *stt.Client, ttsClient *tts.Client) *LiveGPT {
 	return &LiveGPT{
 		config:       config,
 		roomService:  lksdk.NewRoomServiceClient(config.LiveKit.Url, config.LiveKit.ApiKey, config.LiveKit.SecretKey),
@@ -52,6 +52,8 @@ func NewLiveGPT(config *config.Config) *LiveGPT {
 		doneChan:     make(chan struct{}),
 		closedChan:   make(chan struct{}),
 		participants: make(map[string]*GPTParticipant),
+		sttClient:    sttClient,
+		ttsClient:    ttsClient,
 	}
 }
 
@@ -69,24 +71,11 @@ func (s *LiveGPT) Start() error {
 		Handler: n,
 	}
 
-	ctx := context.Background()
-	sttClient, err := stt.NewClient(ctx)
-	if err != nil {
-		return err
-	}
-
-	ttsClient, err := tts.NewClient(ctx)
-	if err != nil {
-		return err
-	}
-
 	openaiKey, ok := os.LookupEnv("OPENAI_API_KEY")
 	if !ok {
 		return errors.New("OPENAI_API_KEY environment variable is not set")
 	}
 
-	s.sttClient = sttClient
-	s.ttsClient = ttsClient
 	s.gptClient = openai.NewClient(openaiKey)
 
 	httpListener, err := net.Listen("tcp", s.httpServer.Addr)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -9,9 +10,13 @@ import (
 
 	"github.com/livekit/protocol/logger"
 	"github.com/urfave/cli/v2"
+	"google.golang.org/api/option"
 
 	"github.com/livekit-examples/livegpt/pkg/config"
 	"github.com/livekit-examples/livegpt/pkg/service"
+
+	stt "cloud.google.com/go/speech/apiv1"
+	tts "cloud.google.com/go/texttospeech/apiv1"
 )
 
 func main() {
@@ -27,6 +32,16 @@ func main() {
 				Name:    "config-body",
 				Usage:   "LiveGPT yaml config body",
 				EnvVars: []string{"LIVEGPT_CONFIG_BODY"},
+			},
+			&cli.StringFlag{
+				Name:    "gcp-credentials-path",
+				Usage:   "Path to GCP credentials file",
+				EnvVars: []string{"GOOGLE_APPLICATION_CREDENTIALS"},
+			},
+			&cli.StringFlag{
+				Name:    "gcp-credentials-body",
+				Usage:   "GCP credentials json body",
+				EnvVars: []string{"GOOGLE_APPLICATION_CREDENTIALS_BODY"},
 			},
 		},
 		Action: runServer,
@@ -56,9 +71,27 @@ func runServer(c *cli.Context) error {
 		return err
 	}
 
+	gcpFile := c.String("gcp-credentials-path")
+	gcpBody := c.String("gcp-credentials-body")
+	gcpCred := option.WithCredentialsFile(gcpFile)
+	if gcpBody != "" {
+		gcpCred = option.WithCredentialsJSON([]byte(gcpBody))
+	}
+
+	ctx := context.Background()
+	sttClient, err := stt.NewClient(ctx, gcpCred)
+	if err != nil {
+		return err
+	}
+
+	ttsClient, err := tts.NewClient(ctx, gcpCred)
+	if err != nil {
+		return err
+	}
+
 	logger.InitFromConfig(conf.Logger, "livegpt")
 
-	server := service.NewLiveGPT(conf)
+	server := service.NewLiveGPT(conf, sttClient, ttsClient)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 
