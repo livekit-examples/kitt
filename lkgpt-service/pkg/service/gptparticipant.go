@@ -88,11 +88,13 @@ func ConnectGPTParticipant(url, token string, language *Language, sttClient *stt
 
 	roomCallback := &lksdk.RoomCallback{
 		ParticipantCallback: lksdk.ParticipantCallback{
-			OnTrackSubscribed: p.trackSubscribed,
+			OnTrackPublished:    p.trackPublished,
+			OnTrackSubscribed:   p.trackSubscribed,
+			OnTrackUnsubscribed: p.trackUnsubscribed,
 		},
 	}
 
-	room, err := lksdk.ConnectToRoomWithToken(url, token, roomCallback) // AutoSubscribe is enabled by default
+	room, err := lksdk.ConnectToRoomWithToken(url, token, roomCallback, lksdk.WithAutoSubscribe(false))
 	if err != nil {
 		return nil, err
 	}
@@ -113,11 +115,19 @@ func ConnectGPTParticipant(url, token string, language *Language, sttClient *stt
 	return p, nil
 }
 
-func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
-	if track.Kind() != webrtc.RTPCodecTypeAudio || publication.Source() != livekit.TrackSource_MICROPHONE {
+func (p *GPTParticipant) trackPublished(publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
+	if publication.Source() != livekit.TrackSource_MICROPHONE {
 		return
 	}
 
+	err := publication.SetSubscribed(true)
+	if err != nil {
+		logger.Errorw("failed to subscribe to the track", err, "track", publication.SID(), "participant", rp.SID())
+		return
+	}
+}
+
+func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
@@ -136,6 +146,16 @@ func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication 
 	logger.Infow("starting transcription for", "participant", rp.SID(), "track", track.ID())
 	transcriber.OnTranscriptionReceived(p.onTranscriptionReceived(rp))
 	go transcriber.Start()
+}
+
+func (p *GPTParticipant) trackUnsubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	if transcriber, ok := p.transcribers[rp.SID()]; ok {
+		transcriber.Stop()
+		delete(p.transcribers, rp.SID())
+	}
 }
 
 func (p *GPTParticipant) onTranscriptionReceived(rp *lksdk.RemoteParticipant) func(resp *sttpb.StreamingRecognizeResponse) {
