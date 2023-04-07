@@ -5,11 +5,13 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"sync"
 
 	stt "cloud.google.com/go/speech/apiv1"
 	sttpb "cloud.google.com/go/speech/apiv1/speechpb"
 	"github.com/livekit/protocol/logger"
 	"github.com/livekit/server-sdk-go/pkg/samplebuilder"
+	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
@@ -21,9 +23,16 @@ type Transcriber struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	track        *webrtc.TrackRemote
 	speechClient *stt.Client
 	language     *Language
+
+	rtpCodec webrtc.RTPCodecParameters
+	sb       *samplebuilder.SampleBuilder
+
+	lock          sync.Mutex
+	oggWriter     *io.PipeWriter
+	oggReader     *io.PipeReader
+	oggSerializer *oggwriter.OggWriter
 
 	results chan RecognizeResult
 	closeCh chan struct{}
@@ -35,18 +44,20 @@ type RecognizeResult struct {
 	IsFinal bool
 }
 
-func NewTranscriber(track *webrtc.TrackRemote, speechClient *stt.Client, language *Language) (*Transcriber, error) {
-	rtpCodec := track.Codec()
-
+func NewTranscriber(rtpCodec webrtc.RTPCodecParameters, speechClient *stt.Client, language *Language) (*Transcriber, error) {
 	if !strings.EqualFold(rtpCodec.MimeType, "audio/opus") {
 		return nil, errors.New("only opus is supported")
 	}
 
+	oggReader, oggWriter := io.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
 	t := &Transcriber{
 		ctx:          ctx,
 		cancel:       cancel,
-		track:        track,
+		rtpCodec:     rtpCodec,
+		sb:           samplebuilder.New(200, &codecs.OpusPacket{}, rtpCodec.ClockRate),
+		oggReader:    oggReader,
+		oggWriter:    oggWriter,
 		language:     language,
 		speechClient: speechClient,
 		results:      make(chan RecognizeResult),
@@ -56,56 +67,54 @@ func NewTranscriber(track *webrtc.TrackRemote, speechClient *stt.Client, languag
 	return t, nil
 }
 
-func (t *Transcriber) start() error {
-	oggReader, pw := io.Pipe()
-	sampleBuilder := samplebuilder.New(200, &codecs.OpusPacket{}, t.track.Codec().ClockRate)
-	go func() {
-		// Read RTP packets from the track
-		oggWriter, err := oggwriter.NewWith(pw, t.track.Codec().ClockRate, t.track.Codec().Channels)
+func (t *Transcriber) WriteRTP(pkt *rtp.Packet) error {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	if t.oggSerializer == nil {
+		oggSerializer, err := oggwriter.NewWith(t.oggWriter, t.rtpCodec.ClockRate, t.rtpCodec.Channels)
 		if err != nil {
-			logger.Errorw("failed to create ogg writer", err)
-			return
+			logger.Errorw("failed to create ogg serializer", err)
+			return err
 		}
+		t.oggSerializer = oggSerializer
+	}
 
-		for {
-			select {
-			case <-t.closeCh:
-				return
-			default:
-				pkt, _, err := t.track.ReadRTP()
-				if err != nil {
-					if err != io.EOF {
-						logger.Errorw("failed to read from track", err)
-					}
-					return
-				}
-
-				sampleBuilder.Push(pkt)
-				for _, p := range sampleBuilder.PopPackets() {
-					oggWriter.WriteRTP(p)
-				}
-			}
+	t.sb.Push(pkt)
+	for _, p := range t.sb.PopPackets() {
+		if err := t.oggSerializer.WriteRTP(p); err != nil {
+			return err
 		}
+	}
+
+	return nil
+}
+
+func (t *Transcriber) start() error {
+	defer func() {
+		close(t.closeCh)
 	}()
 
-streamLoop:
 	for {
 		logger.Debugw("creating a new speech stream")
-		endStreamCh := make(chan struct{})
+
 		stream, err := t.newStream()
 		if err != nil {
 			return err
 		}
+		endStreamCh := make(chan struct{})
+		nextCh := make(chan struct{})
 
+		// Forward track packets to the speech stream
 		go func() {
-			// Forward track packets to the speech stream
+			defer close(nextCh)
 			buf := make([]byte, 1024)
 			for {
 				select {
 				case <-endStreamCh:
 					return
 				default:
-					n, err := oggReader.Read(buf)
+					n, err := t.oggReader.Read(buf)
 					if err != nil {
 						if err != io.EOF {
 							logger.Errorw("failed to read from ogg reader", err)
@@ -118,6 +127,7 @@ streamLoop:
 						continue
 					}
 
+					logger.Debugw("sending audio content to speech stream", "n", n)
 					// Forward to speech stream
 					if err := stream.Send(&sttpb.StreamingRecognizeRequest{
 						StreamingRequest: &sttpb.StreamingRecognizeRequest_AudioContent{
@@ -134,10 +144,11 @@ streamLoop:
 					}
 				}
 			}
+
 		}()
 
+		// Read transcription results
 		for {
-			// Read transcription results
 			resp, err := stream.Recv()
 			if err != nil {
 				if status, ok := status.FromError(err); ok {
@@ -146,7 +157,7 @@ streamLoop:
 						break
 					} else if status.Code() == codes.Canceled {
 						// Context canceled (Stop)
-						break streamLoop
+						return nil
 					}
 				}
 
@@ -155,13 +166,10 @@ streamLoop:
 					Error: err,
 				}
 
-				break streamLoop
+				return err
 			}
 
 			if resp.Error != nil {
-				t.results <- RecognizeResult{
-					Error: status.FromProto(resp.Error).Err(),
-				}
 				continue
 			}
 
@@ -187,15 +195,20 @@ streamLoop:
 		}
 
 		close(endStreamCh)
-	}
+		<-nextCh
 
-	close(t.closeCh)
-	return nil
+		// Create a new oggSerializer each time we open a new SpeechStream
+		// This is required because the stream requires ogg headers to be sent again
+		t.lock.Lock()
+		t.oggSerializer = nil
+		t.lock.Unlock()
+	}
 }
 
 func (t *Transcriber) Close() {
 	t.cancel()
 	<-t.closeCh
+	t.oggWriter.Close()
 	close(t.results)
 }
 
@@ -249,8 +262,8 @@ func (t *Transcriber) newStream() (sttpb.Speech_StreamingRecognizeClient, error)
 		},
 		UseEnhanced:       true,
 		Encoding:          sttpb.RecognitionConfig_OGG_OPUS,
-		SampleRateHertz:   int32(t.track.Codec().ClockRate),
-		AudioChannelCount: int32(t.track.Codec().Channels),
+		SampleRateHertz:   int32(t.rtpCodec.ClockRate),
+		AudioChannelCount: int32(t.rtpCodec.Channels),
 		LanguageCode:      t.language.Code,
 	}
 

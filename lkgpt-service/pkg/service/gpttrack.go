@@ -2,7 +2,6 @@ package service
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -42,12 +41,6 @@ type GPTTrack struct {
 }
 
 func NewGPTTrack() (*GPTTrack, error) {
-	dur, err := utils.ParsePacketDuration(OpusSilenceFrame)
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println(dur)
-
 	cap := webrtc.RTPCodecCapability{
 		Channels:  1,
 		MimeType:  webrtc.MimeTypeOpus,

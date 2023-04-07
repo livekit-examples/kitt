@@ -120,6 +120,16 @@ func ConnectGPTParticipant(url, token string, language *Language, sttClient *stt
 	return p, nil
 }
 
+func (p *GPTParticipant) Disconnect() {
+	p.room.Disconnect()
+
+	for _, transcriber := range p.transcribers {
+		transcriber.Close()
+	}
+
+	p.cancel()
+}
+
 func (p *GPTParticipant) trackPublished(publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
 	if publication.Source() != livekit.TrackSource_MICROPHONE || rp.Identity() == BotIdentity {
 		return
@@ -140,7 +150,7 @@ func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication 
 		return
 	}
 
-	transcriber, err := NewTranscriber(track, p.sttClient, p.language)
+	transcriber, err := NewTranscriber(track.Codec(), p.sttClient, p.language)
 	if err != nil {
 		logger.Errorw("failed to create the transcriber", err)
 		return
@@ -150,6 +160,27 @@ func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication 
 	go func() {
 		for result := range transcriber.Results() {
 			p.onTranscriptionReceived(result, rp)
+		}
+	}()
+
+	// Forward track packets to the transcriber
+	go func() {
+		for {
+			pkt, _, err := track.ReadRTP()
+			if err != nil {
+				if err != io.EOF {
+					logger.Errorw("failed to read track", err, "participant", rp.SID())
+				}
+				return
+			}
+
+			err = transcriber.WriteRTP(pkt)
+			if err != nil {
+				if err != io.EOF {
+					logger.Errorw("failed to forward pkt to the transcriber", err, "participant", rp.SID())
+				}
+				return
+			}
 		}
 	}()
 }
@@ -301,16 +332,6 @@ func (p *GPTParticipant) Answer(history []*Sentence, prompt *Sentence) (string, 
 
 	wg.Wait()
 	return answerBuilder.String(), nil
-}
-
-func (p *GPTParticipant) Disconnect() {
-	p.room.Disconnect()
-
-	for _, transcriber := range p.transcribers {
-		transcriber.Close()
-	}
-
-	p.cancel()
 }
 
 // Packets sent over the datachannels
