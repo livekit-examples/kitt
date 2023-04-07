@@ -10,9 +10,7 @@ import (
 	stt "cloud.google.com/go/speech/apiv1"
 	sttpb "cloud.google.com/go/speech/apiv1/speechpb"
 	"github.com/livekit/protocol/logger"
-	"github.com/livekit/server-sdk-go/pkg/samplebuilder"
 	"github.com/pion/rtp"
-	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 	"google.golang.org/grpc/codes"
@@ -27,7 +25,7 @@ type Transcriber struct {
 	language     *Language
 
 	rtpCodec webrtc.RTPCodecParameters
-	sb       *samplebuilder.SampleBuilder
+	//sb       *samplebuilder.SampleBuilder
 
 	lock          sync.Mutex
 	oggWriter     *io.PipeWriter
@@ -52,10 +50,10 @@ func NewTranscriber(rtpCodec webrtc.RTPCodecParameters, speechClient *stt.Client
 	oggReader, oggWriter := io.Pipe()
 	ctx, cancel := context.WithCancel(context.Background())
 	t := &Transcriber{
-		ctx:          ctx,
-		cancel:       cancel,
-		rtpCodec:     rtpCodec,
-		sb:           samplebuilder.New(200, &codecs.OpusPacket{}, rtpCodec.ClockRate),
+		ctx:      ctx,
+		cancel:   cancel,
+		rtpCodec: rtpCodec,
+		//sb:           samplebuilder.New(200, &codecs.OpusPacket{}, rtpCodec.ClockRate),
 		oggReader:    oggReader,
 		oggWriter:    oggWriter,
 		language:     language,
@@ -80,12 +78,12 @@ func (t *Transcriber) WriteRTP(pkt *rtp.Packet) error {
 		t.oggSerializer = oggSerializer
 	}
 
-	t.sb.Push(pkt)
-	for _, p := range t.sb.PopPackets() {
-		if err := t.oggSerializer.WriteRTP(p); err != nil {
-			return err
-		}
+	//t.sb.Push(pkt)
+	//for _, p := range t.sb.PopPackets() {
+	if err := t.oggSerializer.WriteRTP(pkt); err != nil {
+		return err
 	}
+	//}
 
 	return nil
 }
@@ -96,16 +94,23 @@ func (t *Transcriber) start() error {
 	}()
 
 	for {
-		logger.Debugw("creating a new speech stream")
-
 		stream, err := t.newStream()
 		if err != nil {
+			if status, ok := status.FromError(err); ok && status.Code() == codes.Canceled {
+				return nil
+			}
+
+			logger.Errorw("failed to create a new speech stream", err)
+			t.results <- RecognizeResult{
+				Error: err,
+			}
 			return err
 		}
+
 		endStreamCh := make(chan struct{})
 		nextCh := make(chan struct{})
 
-		// Forward track packets to the speech stream
+		// Forward oggreader to the speech stream
 		go func() {
 			defer close(nextCh)
 			buf := make([]byte, 1024)
@@ -123,19 +128,16 @@ func (t *Transcriber) start() error {
 					}
 
 					if n <= 0 {
-						// No data
-						continue
+						continue // No data
 					}
 
-					logger.Debugw("sending audio content to speech stream", "n", n)
-					// Forward to speech stream
 					if err := stream.Send(&sttpb.StreamingRecognizeRequest{
 						StreamingRequest: &sttpb.StreamingRecognizeRequest_AudioContent{
 							AudioContent: buf[:n],
 						},
 					}); err != nil {
 						if err != io.EOF {
-							logger.Errorw("failed to send audio content to speech stream", err)
+							logger.Errorw("failed to forward audio data to speech stream", err)
 							t.results <- RecognizeResult{
 								Error: err,
 							}
@@ -153,11 +155,9 @@ func (t *Transcriber) start() error {
 			if err != nil {
 				if status, ok := status.FromError(err); ok {
 					if status.Code() == codes.OutOfRange {
-						// Create a new speech stream (maximum speech length exceeded)
-						break
+						break // Create a new speech stream (maximum speech length exceeded)
 					} else if status.Code() == codes.Canceled {
-						// Context canceled (Stop)
-						return nil
+						return nil // Context canceled (Stop)
 					}
 				}
 
@@ -173,6 +173,8 @@ func (t *Transcriber) start() error {
 				continue
 			}
 
+			// Read the whole transcription and put inside one string
+			// We don't need to process each part individually
 			var sb strings.Builder
 			final := false
 			for _, result := range resp.Results {
@@ -195,6 +197,10 @@ func (t *Transcriber) start() error {
 		}
 
 		close(endStreamCh)
+
+		// When nothing is written on the transcriber, this will block because the oggReader is waiting for data
+		// It avoids to create useless speech streams.
+		// It is also used to wait for the end of the current stream, so we can create the next one and reset the oggSerializer
 		<-nextCh
 
 		// Create a new oggSerializer each time we open a new SpeechStream

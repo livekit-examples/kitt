@@ -105,7 +105,6 @@ func (p *provider) NextSample() (media.Sample, error) {
 	p.lock.Lock()
 	onComplete := p.onComplete
 	if p.reader == nil && len(p.queue) > 0 {
-		logger.Debugw("switching to next reader")
 		p.lastGranule = 0
 		p.reader = p.queue[0]
 		p.queue = p.queue[1:]
