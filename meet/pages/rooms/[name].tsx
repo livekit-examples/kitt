@@ -5,7 +5,7 @@ import {
   useToken,
   formatChatMessageLinks,
 } from '@livekit/components-react';
-import { RoomOptions, VideoPresets } from 'livekit-client';
+import { RoomConnectOptions, RoomOptions, VideoPresets } from 'livekit-client';
 
 import type { NextPage } from 'next';
 import Head from 'next/head';
@@ -88,6 +88,8 @@ const ActiveRoom = ({ roomName, userChoices, onLeave, languageCode }: ActiveRoom
         resolution: hq === 'true' ? VideoPresets.h2160 : VideoPresets.h720,
       },
       publishDefaults: {
+        red: false,
+        dtx: false,
         videoSimulcastLayers:
           hq === 'true'
             ? [VideoPresets.h1080, VideoPresets.h720]

@@ -25,7 +25,7 @@ import (
 )
 
 type ParticipantMetadata struct {
-	LanguageCode string `json:"languageCode"`
+	LanguageCode string `json:"languageCode,omitempty"`
 }
 
 type LiveGPT struct {
@@ -125,8 +125,9 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		// TODO(theomonnom): Stateless?
 		// If the GPT participant is not connected, connect it
 		s.participantsLock.Lock()
-		if _, ok := s.participants[event.Room.Name]; ok {
+		if _, ok := s.participants[event.Room.Sid]; ok {
 			s.participantsLock.Unlock()
+			logger.Infow("gpt participant already connected", "room", event.Room.Name)
 			return
 		}
 		s.participantsLock.Unlock()
@@ -135,6 +136,7 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		if event.Participant.Metadata != "" {
 			err := json.Unmarshal([]byte(event.Participant.Metadata), &metadata)
 			if err != nil {
+				logger.Errorw("error unmarshalling participant metadata", err)
 				return
 			}
 		}
@@ -165,17 +167,17 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		}
 
 		s.participantsLock.Lock()
-		s.participants[event.Room.Name] = p
+		s.participants[event.Room.Sid] = p
 		s.participantsLock.Unlock()
 	} else if event.Event == webhook.EventParticipantLeft {
 		// If the GPT participant is alone, disconnect it
 		s.participantsLock.Lock()
 		defer s.participantsLock.Unlock()
-		if p, ok := s.participants[event.Room.Name]; ok {
+		if p, ok := s.participants[event.Room.Sid]; ok {
 			if event.Room.NumParticipants <= 1 {
 				logger.Infow("disconnecting gpt participant", "room", event.Room.Name)
 				p.Disconnect()
-				delete(s.participants, event.Room.Name)
+				delete(s.participants, event.Room.Sid)
 			}
 		}
 	}
