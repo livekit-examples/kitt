@@ -11,7 +11,8 @@ export const Transcriber = () => {
   const [transcripts, setTranscripts] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
-    if (!message) return;
+    if (!message)
+      return;
 
     const decoder = new TextDecoder();
     const packet = JSON.parse(decoder.decode(message.payload)) as Packet;
@@ -22,7 +23,8 @@ export const Transcriber = () => {
   }, [message]);
 
   useEffect(() => {
-    if (!packet) return;
+    if (!packet)
+      return;
 
     setTranscripts(new Map(transcripts.set(packet.sid, packet.name + ': ' + packet.transcript)));
 

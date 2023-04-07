@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 
@@ -21,12 +22,17 @@ func NewChatCompletion(client *openai.Client, language *Language) *ChatCompletio
 	}
 }
 
-func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prompt string) (*ChatStream, error) {
+func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prompt *Sentence) (*ChatStream, error) {
 	var sb strings.Builder
 	for _, s := range history {
-		sb.WriteString(s.Name)
+		if s.IsBot {
+			sb.WriteString(fmt.Sprintf("You (%s)", BotName))
+		} else {
+			sb.WriteString(s.ParticipantName)
+		}
+
 		sb.WriteString(" said ")
-		sb.WriteString(s.Transcript)
+		sb.WriteString(s.Text)
 		sb.WriteString("\n\n")
 	}
 
@@ -36,16 +42,20 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role: openai.ChatMessageRoleSystem,
-				Content: "You are a voice assistant in a meeting named LiveGPT." +
-					"Provide your answers as concise as possible.",
+				Content: "You are a voice assistant in a meeting named KITT, make concise/short answers." +
+					"Always answer in English. Always prepend the language code before answering. e.g: <fr-FR> <sentence in French>",
 			},
 			{
 				Role:    openai.ChatMessageRoleUser,
-				Content: "Here is the history of the conversation:\n" + conversation,
+				Content: "History of the conversation:\n" + conversation,
+			},
+			{
+				Role:    openai.ChatMessageRoleSystem,
+				Content: fmt.Sprintf("You are talking to %s", prompt.ParticipantName),
 			},
 			{
 				Role:    openai.ChatMessageRoleUser,
-				Content: prompt,
+				Content: prompt.Text,
 			},
 		},
 		Stream: true,

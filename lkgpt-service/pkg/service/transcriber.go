@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"strings"
-	"sync"
 
 	stt "cloud.google.com/go/speech/apiv1"
 	sttpb "cloud.google.com/go/speech/apiv1/speechpb"
@@ -14,6 +13,8 @@ import (
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Transcriber struct {
@@ -24,10 +25,14 @@ type Transcriber struct {
 	speechClient *stt.Client
 	language     *Language
 
-	onTranscription func(resp *sttpb.StreamingRecognizeResponse)
-	lock            sync.Mutex
+	results chan RecognizeResult
+	closeCh chan struct{}
+}
 
-	closedChan chan struct{}
+type RecognizeResult struct {
+	Error   error
+	Text    string
+	IsFinal bool
 }
 
 func NewTranscriber(track *webrtc.TrackRemote, speechClient *stt.Client, language *Language) (*Transcriber, error) {
@@ -38,26 +43,22 @@ func NewTranscriber(track *webrtc.TrackRemote, speechClient *stt.Client, languag
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Transcriber{
+	t := &Transcriber{
 		ctx:          ctx,
 		cancel:       cancel,
 		track:        track,
 		language:     language,
 		speechClient: speechClient,
-		closedChan:   make(chan struct{}),
-	}, nil
+		results:      make(chan RecognizeResult),
+		closeCh:      make(chan struct{}),
+	}
+	go t.start()
+	return t, nil
 }
 
-func (t *Transcriber) OnTranscriptionReceived(f func(resp *sttpb.StreamingRecognizeResponse)) {
-	t.lock.Lock()
-	t.onTranscription = f
-	t.lock.Unlock()
-}
-
-func (t *Transcriber) Start() error {
+func (t *Transcriber) start() error {
 	oggReader, pw := io.Pipe()
 	sampleBuilder := samplebuilder.New(200, &codecs.OpusPacket{}, t.track.Codec().ClockRate)
-
 	go func() {
 		// Read RTP packets from the track
 		oggWriter, err := oggwriter.NewWith(pw, t.track.Codec().ClockRate, t.track.Codec().Channels)
@@ -68,11 +69,14 @@ func (t *Transcriber) Start() error {
 
 		for {
 			select {
-			case <-t.closedChan:
+			case <-t.closeCh:
 				return
 			default:
 				pkt, _, err := t.track.ReadRTP()
 				if err != nil {
+					if err != io.EOF {
+						logger.Errorw("failed to read from track", err)
+					}
 					return
 				}
 
@@ -86,9 +90,8 @@ func (t *Transcriber) Start() error {
 
 streamLoop:
 	for {
-		logger.Infow("creating a new speech stream")
-
-		closeChan := make(chan struct{})
+		logger.Debugw("creating a new speech stream")
+		endStreamCh := make(chan struct{})
 		stream, err := t.newStream()
 		if err != nil {
 			return err
@@ -97,18 +100,17 @@ streamLoop:
 		go func() {
 			// Forward track packets to the speech stream
 			buf := make([]byte, 1024)
-		forwardLoop:
 			for {
 				select {
-				case <-closeChan:
-					break
+				case <-endStreamCh:
+					return
 				default:
 					n, err := oggReader.Read(buf)
 					if err != nil {
 						if err != io.EOF {
 							logger.Errorw("failed to read from ogg reader", err)
 						}
-						break forwardLoop
+						return
 					}
 
 					if n <= 0 {
@@ -122,8 +124,13 @@ streamLoop:
 							AudioContent: buf[:n],
 						},
 					}); err != nil {
-						logger.Errorw("failed to send audio content to speech stream", err)
-						break forwardLoop
+						if err != io.EOF {
+							logger.Errorw("failed to send audio content to speech stream", err)
+							t.results <- RecognizeResult{
+								Error: err,
+							}
+						}
+						return
 					}
 				}
 			}
@@ -133,35 +140,67 @@ streamLoop:
 			// Read transcription results
 			resp, err := stream.Recv()
 			if err != nil {
-				if err == io.EOF {
-					// Create a new speech stream
-					break
+				if status, ok := status.FromError(err); ok {
+					if status.Code() == codes.OutOfRange {
+						// Create a new speech stream (maximum speech length exceeded)
+						break
+					} else if status.Code() == codes.Canceled {
+						// Context canceled (Stop)
+						break streamLoop
+					}
 				}
 
 				logger.Errorw("failed to receive response from speech stream", err)
+				t.results <- RecognizeResult{
+					Error: err,
+				}
+
 				break streamLoop
 			}
-			// TODO(theomonnom): Use channel
-			t.lock.Lock()
-			onTranscription := t.onTranscription
-			t.lock.Unlock()
 
-			if onTranscription != nil {
-				onTranscription(resp)
+			if resp.Error != nil {
+				t.results <- RecognizeResult{
+					Error: status.FromProto(resp.Error).Err(),
+				}
+				continue
 			}
 
+			var sb strings.Builder
+			final := false
+			for _, result := range resp.Results {
+				alt := result.Alternatives[0]
+				text := alt.Transcript
+				sb.WriteString(text)
+
+				if result.IsFinal {
+					sb.Reset()
+					sb.WriteString(text)
+					final = true
+					break
+				}
+			}
+
+			t.results <- RecognizeResult{
+				Text:    sb.String(),
+				IsFinal: final,
+			}
 		}
 
-		close(closeChan)
+		close(endStreamCh)
 	}
 
-	close(t.closedChan)
+	close(t.closeCh)
 	return nil
 }
 
-func (t *Transcriber) Stop() {
+func (t *Transcriber) Close() {
 	t.cancel()
-	<-t.closedChan
+	<-t.closeCh
+	close(t.results)
+}
+
+func (t *Transcriber) Results() <-chan RecognizeResult {
+	return t.results
 }
 
 func (t *Transcriber) newStream() (sttpb.Speech_StreamingRecognizeClient, error) {
@@ -195,6 +234,8 @@ func (t *Transcriber) newStream() (sttpb.Speech_StreamingRecognizeClient, error)
 				{
 					CustomClassId: "gpt",
 					Items: []*sttpb.CustomClass_ClassItem{
+						{Value: "Kit"},
+						{Value: "KITT"},
 						{Value: "GPT"},
 						{Value: "Live Kit"},
 						{Value: "Live GPT"},

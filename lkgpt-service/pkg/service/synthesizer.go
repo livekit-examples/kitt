@@ -19,11 +19,11 @@ func NewSynthesizer(client *tts.Client, language *Language) *Synthesizer {
 	}
 }
 
-func (s *Synthesizer) Synthesize(ctx context.Context, ssml string) (*ttspb.SynthesizeSpeechResponse, error) {
+func (s *Synthesizer) Synthesize(ctx context.Context, text string) (*ttspb.SynthesizeSpeechResponse, error) {
 	req := &ttspb.SynthesizeSpeechRequest{
 		Input: &ttspb.SynthesisInput{
-			InputSource: &ttspb.SynthesisInput_Ssml{
-				Ssml: ssml,
+			InputSource: &ttspb.SynthesisInput_Text{
+				Text: text,
 			},
 		},
 		Voice: &ttspb.VoiceSelectionParams{

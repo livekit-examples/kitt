@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
 
 	stt "cloud.google.com/go/speech/apiv1"
-	sttpb "cloud.google.com/go/speech/apiv1/speechpb"
 	tts "cloud.google.com/go/texttospeech/apiv1"
 	"github.com/livekit/protocol/livekit"
 	"github.com/livekit/protocol/logger"
@@ -24,16 +24,18 @@ var (
 	ErrCodecNotSupported = errors.New("this codec isn't supported")
 	ErrBusy              = errors.New("the gpt participant is already used")
 
-	BotIdentity = "livegpt"
-	BotName     = "LiveGPT"
+	BotIdentity = "kitt"
+	BotName     = "KITT"
 
 	Languages = map[string]*Language{
 		"en-US": {
 			Code:             "en-US",
+			Label:            "English",
 			SynthesizerModel: "en-US-News-N",
 		},
 		"fr-FR": {
 			Code:             "fr-FR",
+			Label:            "Français",
 			SynthesizerModel: "fr-FR-Wavenet-B",
 		},
 	}
@@ -42,12 +44,15 @@ var (
 
 type Language struct {
 	Code             string
+	Label            string
 	SynthesizerModel string
 }
 
+// A sentence in the conversation (Used for the history)
 type Sentence struct {
-	Name       string
-	Transcript string
+	ParticipantName string
+	IsBot           bool
+	Text            string
 }
 
 type GPTParticipant struct {
@@ -142,10 +147,11 @@ func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication 
 	}
 
 	p.transcribers[rp.SID()] = transcriber
-
-	logger.Infow("starting transcription for", "participant", rp.SID(), "track", track.ID())
-	transcriber.OnTranscriptionReceived(p.onTranscriptionReceived(rp))
-	go transcriber.Start()
+	go func() {
+		for result := range transcriber.Results() {
+			p.onTranscriptionReceived(result, rp)
+		}
+	}()
 }
 
 func (p *GPTParticipant) trackUnsubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
@@ -153,94 +159,86 @@ func (p *GPTParticipant) trackUnsubscribed(track *webrtc.TrackRemote, publicatio
 	defer p.lock.Unlock()
 
 	if transcriber, ok := p.transcribers[rp.SID()]; ok {
-		transcriber.Stop()
+		transcriber.Close()
 		delete(p.transcribers, rp.SID())
 	}
 }
 
-func (p *GPTParticipant) onTranscriptionReceived(rp *lksdk.RemoteParticipant) func(resp *sttpb.StreamingRecognizeResponse) {
-	return func(resp *sttpb.StreamingRecognizeResponse) {
-		// Keep track of the conversation inside the room
-		for _, result := range resp.Results {
-			prompt := result.Alternatives[0].Transcript
+func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lksdk.RemoteParticipant) {
+	if result.Error != nil {
+		_ = p.sendErrorPacket(fmt.Sprintf("Sorry, an error occured while transcribing %s's speech using Google STT", rp.Identity()))
+		return
+	}
 
-			if err := p.sendPacket(&packet{
-				Type: packet_Transcript,
-				Data: &transcriptPacket{
-					Sid:        rp.SID(),
-					Name:       rp.Name(),
-					Transcript: prompt,
-					IsFinal:    result.IsFinal,
-				},
-			}); err != nil {
-				logger.Warnw("failed to send transcriptPacket", err)
-			}
+	_ = p.sendPacket(&packet{
+		Type: packet_Transcript,
+		Data: &transcriptPacket{
+			Sid:        rp.SID(),
+			Name:       rp.Name(),
+			Transcript: result.Text,
+			IsFinal:    result.IsFinal,
+		},
+	})
 
-			if !result.IsFinal {
-				continue
-			}
-
-			go func() {
-				if p.isBusy.CompareAndSwap(false, true) {
-					defer p.isBusy.Store(false)
-
-					// Naive trigger implementation
-					triggerBot := true
-					if len(p.room.GetParticipants()) > 2 {
-						triggerBot = false
-						words := strings.Split(prompt, " ")
-						if len(words) >= 4 {
-							triggerWords := strings.ToLower(strings.Join(words[:4], ""))
-							if strings.Contains(triggerWords, "gpt") ||
-								strings.Contains(triggerWords, "livekit") ||
-								strings.Contains(triggerWords, "live-kit") {
-								triggerBot = true
-							}
-						}
-					}
-
-					if !triggerBot {
-						return
-					}
-
-					// Answer the prompt if the GPTParticipant isn't busy
-					logger.Debugw("answering to", "participant", rp.SID(), "prompt", prompt)
-					answer, err := p.Answer(prompt)
-					if err != nil {
-						logger.Errorw("failed to answer", err, "participant", rp.SID(), "prompt", prompt)
-					}
-
-					p.lock.Lock()
-					p.conversation = append(p.conversation, &Sentence{
-						Name:       "Assistant (" + BotName + ")",
-						Transcript: answer,
-					})
-					p.lock.Unlock()
+	if result.IsFinal {
+		// Naive trigger implementation
+		triggerBot := true
+		if len(p.room.GetParticipants()) > 2 {
+			triggerBot = false
+			words := strings.Split(result.Text, " ")
+			if len(words) >= 4 {
+				triggerWords := strings.ToLower(strings.Join(words[:4], ""))
+				if strings.Contains(triggerWords, "kit") || strings.Contains(triggerWords, "gpt") {
+					triggerBot = true
 				}
-			}()
-
-			sentence := &Sentence{
-				Name:       rp.Name(),
-				Transcript: prompt,
 			}
-
-			p.lock.Lock()
-			p.conversation = append(p.conversation, sentence)
-			p.lock.Unlock()
 		}
+
+		prompt := &Sentence{
+			ParticipantName: rp.Identity(),
+			IsBot:           false,
+			Text:            result.Text,
+		}
+
+		p.lock.Lock()
+		// Don't include the current prompt in the history when answering
+		history := make([]*Sentence, len(p.conversation))
+		copy(history, p.conversation)
+
+		p.conversation = append(p.conversation, prompt)
+		p.lock.Unlock()
+
+		if triggerBot && p.isBusy.CompareAndSwap(false, true) {
+			go func() {
+				defer p.isBusy.Store(false)
+
+				_ = p.sendStatePacket(state_Loading)
+				defer p.sendStatePacket(state_Idle)
+
+				logger.Debugw("answering to", "participant", rp.SID(), "text", result.Text)
+				answer, err := p.Answer(history, prompt) // Will send state_Speaking
+				if err != nil {
+					logger.Errorw("failed to answer", err, "participant", rp.SID(), "text", result.Text)
+					return
+				}
+
+				botAnswer := &Sentence{
+					ParticipantName: BotName,
+					IsBot:           true,
+					Text:            answer,
+				}
+
+				p.lock.Lock()
+				p.conversation = append(p.conversation, botAnswer)
+				p.lock.Unlock()
+			}()
+		}
+
 	}
 }
 
-func (p *GPTParticipant) Answer(prompt string) (string, error) {
-	_ = p.sendStatePacket(state_Loading)
-
-	p.lock.Lock()
-	tmp := make([]*Sentence, len(p.conversation))
-	copy(tmp, p.conversation)
-	p.lock.Unlock()
-
-	logger.Debugw("starting completion stream")
-	stream, err := p.completion.Complete(p.ctx, tmp, prompt)
+func (p *GPTParticipant) Answer(history []*Sentence, prompt *Sentence) (string, error) {
+	stream, err := p.completion.Complete(p.ctx, history, prompt)
 	if err != nil {
 		return "", err
 	}
@@ -261,7 +259,7 @@ func (p *GPTParticipant) Answer(prompt string) (string, error) {
 				break
 			}
 
-			_ = p.sendErrorPacket("An error occured while communicating with OpenAI.")
+			_ = p.sendErrorPacket("Sorry, an error occured while communicating with OpenAI. It can happen when the servers are overloaded")
 			return "", err
 		}
 
@@ -279,7 +277,7 @@ func (p *GPTParticipant) Answer(prompt string) (string, error) {
 			resp, err := p.synthesizer.Synthesize(p.ctx, sentence)
 			if err != nil {
 				logger.Errorw("failed to synthesize", err, "sentence", sentence)
-				_ = p.sendErrorPacket("An error occured while synthesizing voice data using Google TTS")
+				_ = p.sendErrorPacket("Sorry, an error occured while synthesizing voice data using Google TTS")
 				return
 			}
 
@@ -302,7 +300,6 @@ func (p *GPTParticipant) Answer(prompt string) (string, error) {
 	}
 
 	wg.Wait()
-	_ = p.sendStatePacket(state_Idle)
 	return answerBuilder.String(), nil
 }
 
@@ -310,7 +307,7 @@ func (p *GPTParticipant) Disconnect() {
 	p.room.Disconnect()
 
 	for _, transcriber := range p.transcribers {
-		transcriber.Stop()
+		transcriber.Close()
 	}
 
 	p.cancel()

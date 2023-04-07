@@ -26,7 +26,7 @@ import { GPTTile } from './GPTTile';
 import { Transcriber } from './Transcriber';
 import { ErrorMessage } from './ErrorMessage';
 
-const BotIdentity = 'livegpt';
+const BotIdentity = 'kitt';
 
 export interface VideoConferenceProps extends React.HTMLAttributes<HTMLDivElement> {
   chatMessageFormatter?: MessageFormatter;
