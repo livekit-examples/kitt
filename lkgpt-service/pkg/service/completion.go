@@ -54,7 +54,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 			},
 			{
 				Role:    openai.ChatMessageRoleUser,
-				Content: "History of the conversation:\n" + conversation,
+				Content: "Here is the history of the conversation we just had:\n" + conversation,
 			},
 			{
 				Role:    openai.ChatMessageRoleSystem,
