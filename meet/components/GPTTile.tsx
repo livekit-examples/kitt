@@ -22,11 +22,11 @@ export type GPTTileProps = React.HTMLAttributes<HTMLDivElement> & {
 const decoder = new TextDecoder();
 
 export const GPTTile = ({ participant, ...htmlProps }: GPTTileProps) => {
-  const p = useEnsureParticipant(participant);
   const { message } = useDataChannel();
-
   const [volume, setVolume] = React.useState(0);
   const [state, setState] = React.useState<GPTState>(GPTState.Idle);
+  const activateSoundRef = React.useRef<HTMLAudioElement>(null);
+  const p = useEnsureParticipant(participant);
 
   useEffect(() => {
     if (!message) {
@@ -41,7 +41,7 @@ export const GPTTile = ({ participant, ...htmlProps }: GPTTileProps) => {
 
       if (statePacket.state == GPTState.Active) {
         // Status changed to Active
-        //new Audio(activateSound).play();
+        activateSoundRef.current?.play();
       }
     }
   }, [message]);
@@ -94,6 +94,7 @@ export const GPTTile = ({ participant, ...htmlProps }: GPTTileProps) => {
 
   return (
     <div style={{ position: 'relative' }} {...tile.elementProps}>
+      <audio ref={activateSoundRef} src="/sfx/activate.wav" />
       <ParticipantContextIfNeeded participant={p}>
         <audio ref={audio} {...track.elementProps}></audio>
         <Box h="100%" bgColor="#000" display="flex" alignItems="center" justifyContent="center">
