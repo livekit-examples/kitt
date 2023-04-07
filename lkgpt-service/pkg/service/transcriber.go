@@ -198,9 +198,12 @@ func (t *Transcriber) start() error {
 
 		close(endStreamCh)
 
-		// When nothing is written on the transcriber, this will block because the oggReader is waiting for data
-		// It avoids to create useless speech streams.
-		// It is also used to wait for the end of the current stream, so we can create the next one and reset the oggSerializer
+		// When nothing is written on the transcriber (The track is muted), this will block because the oggReader
+		// is waiting for data. It avoids to create useless speech streams. (Also we end up here because Google automatically close the
+		// previous stream when there's no "activity")
+		//
+		// Otherwise (When we have data) it is used to wait for the end of the current stream,
+		// so we can create the next one and reset the oggSerializer
 		<-nextCh
 
 		// Create a new oggSerializer each time we open a new SpeechStream
