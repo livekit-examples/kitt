@@ -258,6 +258,15 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 	shouldAnswer := false
 	if len(p.room.GetParticipants()) == 2 {
 		// Always answer when we're alone with KITT
+		if activeParticipant == nil {
+			// Still activate it to play the right animations clientside
+			activeParticipant = rp
+			p.lock.Lock()
+			p.activeParticipant = activeParticipant
+			p.lock.Unlock()
+			_ = p.sendStatePacket(state_Active)
+		}
+
 		shouldAnswer = result.IsFinal
 	} else {
 		// Check if the participant is activating the KITT

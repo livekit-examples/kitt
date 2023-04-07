@@ -19,7 +19,7 @@ import {
 
 import { isEqualTrackRef, isTrackReference, WidgetState } from '@livekit/components-core';
 
-import { Track } from 'livekit-client';
+import { RoomEvent, Track } from 'livekit-client';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { usePinnedTracks } from '../hooks/usePinnedTracks';
 import { GPTTile } from './GPTTile';
@@ -40,7 +40,7 @@ export function VideoConference({ chatMessageFormatter, ...props }: VideoConfere
       { source: Track.Source.Camera, withPlaceholder: true },
       { source: Track.Source.ScreenShare, withPlaceholder: false },
     ],
-    { updateOnlyOn: [] },
+    { updateOnlyOn: [RoomEvent.ActiveSpeakersChanged] },
   );
 
   const layoutContext = useCreateLayoutContext();
