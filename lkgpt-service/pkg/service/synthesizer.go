@@ -8,18 +8,16 @@ import (
 )
 
 type Synthesizer struct {
-	client   *tts.Client
-	language *Language
+	client *tts.Client
 }
 
-func NewSynthesizer(client *tts.Client, language *Language) *Synthesizer {
+func NewSynthesizer(client *tts.Client) *Synthesizer {
 	return &Synthesizer{
-		client:   client,
-		language: language,
+		client: client,
 	}
 }
 
-func (s *Synthesizer) Synthesize(ctx context.Context, text string) (*ttspb.SynthesizeSpeechResponse, error) {
+func (s *Synthesizer) Synthesize(ctx context.Context, text string, language *Language) (*ttspb.SynthesizeSpeechResponse, error) {
 	req := &ttspb.SynthesizeSpeechRequest{
 		Input: &ttspb.SynthesisInput{
 			InputSource: &ttspb.SynthesisInput_Text{
@@ -27,8 +25,8 @@ func (s *Synthesizer) Synthesize(ctx context.Context, text string) (*ttspb.Synth
 			},
 		},
 		Voice: &ttspb.VoiceSelectionParams{
-			LanguageCode: s.language.Code,
-			Name:         s.language.SynthesizerModel,
+			LanguageCode: language.Code,
+			Name:         language.SynthesizerModel,
 		},
 		AudioConfig: &ttspb.AudioConfig{
 			AudioEncoding:   ttspb.AudioEncoding_OGG_OPUS,

@@ -36,14 +36,21 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 		sb.WriteString("\n\n")
 	}
 
+	var voiceSb strings.Builder
+	for _, lang := range Languages {
+		voiceSb.WriteString(fmt.Sprintf("<%s>, ", lang.Code))
+	}
+
 	conversation := sb.String()
 	stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 		Model: openai.GPT3Dot5Turbo,
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role: openai.ChatMessageRoleSystem,
-				Content: "You are a voice assistant in a meeting named KITT, make concise/short answers." +
-					"Always answer in English. Always prepend the language code before answering. e.g: <fr-FR> <sentence in French>",
+				Content: "You are a voice assistant in a meeting named KITT, make concise/short answers. " +
+					fmt.Sprintf("Always answer in %s. ", c.language.Label) +
+					"Always prepend the right language code before answering: " + voiceSb.String() +
+					"e.g: <fr-FR> <sentence in French>",
 			},
 			{
 				Role:    openai.ChatMessageRoleUser,

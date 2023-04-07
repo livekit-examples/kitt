@@ -276,7 +276,7 @@ func (t *Transcriber) newStream() (sttpb.Speech_StreamingRecognizeClient, error)
 		Encoding:          sttpb.RecognitionConfig_OGG_OPUS,
 		SampleRateHertz:   int32(t.rtpCodec.ClockRate),
 		AudioChannelCount: int32(t.rtpCodec.Channels),
-		LanguageCode:      t.language.Code,
+		LanguageCode:      t.language.TranscriberCode,
 	}
 
 	if err := stream.Send(&sttpb.StreamingRecognizeRequest{

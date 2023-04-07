@@ -31,12 +31,38 @@ var (
 		"en-US": {
 			Code:             "en-US",
 			Label:            "English",
+			TranscriberCode:  "en-US",
 			SynthesizerModel: "en-US-News-N",
 		},
 		"fr-FR": {
 			Code:             "fr-FR",
 			Label:            "Français",
+			TranscriberCode:  "fr-FR",
 			SynthesizerModel: "fr-FR-Wavenet-B",
+		},
+		"de-DE": {
+			Code:             "de-DE",
+			Label:            "German",
+			TranscriberCode:  "de-DE",
+			SynthesizerModel: "de-DE-Wavenet-B",
+		},
+		"ja-JP": {
+			Code:             "ja-JP",
+			Label:            "Japanese",
+			TranscriberCode:  "ja-JP",
+			SynthesizerModel: "ja-JP-Wavenet-D",
+		},
+		"cmn-CN": {
+			Code:             "cmn-CN",
+			Label:            "Mandarin Chinese",
+			TranscriberCode:  "zh",
+			SynthesizerModel: "cmn-CN-Wavenet-C",
+		},
+		"es-ES": {
+			Code:             "es-ES",
+			Label:            "Spanish",
+			TranscriberCode:  "es-ES",
+			SynthesizerModel: "es-ES-Wavenet-B",
 		},
 	}
 	DefaultLanguage = Languages["en-US"]
@@ -45,6 +71,7 @@ var (
 type Language struct {
 	Code             string
 	Label            string
+	TranscriberCode  string
 	SynthesizerModel string
 }
 
@@ -87,7 +114,7 @@ func ConnectGPTParticipant(url, token string, language *Language, sttClient *stt
 		gptClient:    gptClient,
 		language:     language,
 		transcribers: make(map[string]*Transcriber),
-		synthesizer:  NewSynthesizer(ttsClient, language),
+		synthesizer:  NewSynthesizer(ttsClient),
 		completion:   NewChatCompletion(gptClient, language),
 	}
 
@@ -235,7 +262,6 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 		// Don't include the current prompt in the history when answering
 		history := make([]*Sentence, len(p.conversation))
 		copy(history, p.conversation)
-
 		p.conversation = append(p.conversation, prompt)
 		p.lock.Unlock()
 
@@ -274,8 +300,6 @@ func (p *GPTParticipant) Answer(history []*Sentence, prompt *Sentence) (string, 
 		return "", err
 	}
 
-	answerBuilder := strings.Builder{}
-
 	var last chan struct{} // Used to order the goroutines (See QueueReader bellow)
 	var wg sync.WaitGroup
 
@@ -283,6 +307,8 @@ func (p *GPTParticipant) Answer(history []*Sentence, prompt *Sentence) (string, 
 		wg.Done()
 	})
 
+	sb := strings.Builder{}
+	language := p.language // Used language for the current sentence
 	for {
 		sentence, err := stream.Recv()
 		if err != nil {
@@ -294,18 +320,35 @@ func (p *GPTParticipant) Answer(history []*Sentence, prompt *Sentence) (string, 
 			return "", err
 		}
 
-		answerBuilder.WriteString(sentence)
+		// Try to parse the language from the sentence (ChatGPT can provide <en-US>, en-US as a prefix)
+		trimSentence := strings.TrimSpace(strings.ToLower(sentence))
+		for code, lang := range Languages {
+			prefix1 := strings.ToLower(fmt.Sprintf("<%s>", code))
+			prefix2 := strings.ToLower(code)
 
+			if strings.HasPrefix(trimSentence, prefix1) {
+				sentence = sentence[len(prefix1):]
+			} else if strings.HasPrefix(trimSentence, prefix2) {
+				sentence = sentence[len(prefix2):]
+			} else {
+				continue
+			}
+
+			language = lang
+		}
+
+		sb.WriteString(sentence)
 		tmpLast := last
-		currentChan := make(chan struct{})
+		tmpLang := language
+		currentCh := make(chan struct{})
 
 		wg.Add(1)
 		go func() {
-			defer close(currentChan)
+			defer close(currentCh)
 			defer wg.Done()
 
 			logger.Debugw("synthesizing", "sentence", sentence)
-			resp, err := p.synthesizer.Synthesize(p.ctx, sentence)
+			resp, err := p.synthesizer.Synthesize(p.ctx, sentence, tmpLang)
 			if err != nil {
 				logger.Errorw("failed to synthesize", err, "sentence", sentence)
 				_ = p.sendErrorPacket("Sorry, an error occured while synthesizing voice data using Google TTS")
@@ -327,11 +370,11 @@ func (p *GPTParticipant) Answer(history []*Sentence, prompt *Sentence) (string, 
 			wg.Add(1)
 		}()
 
-		last = currentChan
+		last = currentCh
 	}
 
 	wg.Wait()
-	return answerBuilder.String(), nil
+	return sb.String(), nil
 }
 
 // Packets sent over the datachannels

@@ -19,7 +19,11 @@ const Home = () => {
         <p style={{ marginTop: 0 }}>Try it now by creating a new room. Choose the language of the bot:</p>
         <select ref={ref} className={styles.startSelect}>
           <option value="en-US">English (United States)</option>
-          <option value="fr-FR">Français (France)</option>
+          <option value="fr-FR">French (France)</option>
+          <option value="de-DE">German (Germany)</option>
+          <option value="jp-JP">Japanese</option>
+          <option value="cmn-CH">Mandarin Chinese</option>
+          <option value="es-ES">Spanish</option>
         </select>
         <button className="lk-button" onClick={startMeeting}>
           Start Meeting
