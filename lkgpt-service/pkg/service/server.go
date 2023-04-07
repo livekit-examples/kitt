@@ -188,7 +188,9 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		if ap, ok := s.participants[event.Room.Sid]; ok {
 			if event.Room.NumParticipants <= 1 {
 				logger.Infow("disconnecting gpt participant", "room", event.Room.Name)
-				ap.Participant.Disconnect()
+				if ap.Participant != nil {
+					ap.Participant.Disconnect()
+				}
 				delete(s.participants, event.Room.Sid)
 			}
 		}
