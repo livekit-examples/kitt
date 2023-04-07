@@ -240,10 +240,11 @@ const IdleAndActivatedView = ({
 }) => {
   return (
     <div style={{ display: "flex", gap: config.barGap }}>
-      {config.barCounts.map((_, idx) => {
+      {config.barCounts.map((key, idx) => {
         const values = animationValuesForIndex(idx, config.barCounts.length);
         return (
           <PulsingLED
+            key={key}
             config={config}
             duration={duration}
             targetOpacity={values.targetOpacity}
