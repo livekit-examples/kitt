@@ -260,6 +260,7 @@ func (t *Transcriber) newStream() (sttpb.Speech_StreamingRecognizeClient, error)
 					CustomClassId: "gpt",
 					Items: []*sttpb.CustomClass_ClassItem{
 						{Value: "Kit"},
+						{Value: "Kite"},
 						{Value: "KITT"},
 						{Value: "GPT"},
 						{Value: "Live Kit"},

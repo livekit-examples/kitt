@@ -27,12 +27,15 @@ var (
 	BotIdentity = "kitt"
 	BotName     = "KITT"
 
+	// Naive trigger implementation
+	GreetingWords = []string{"hi", "hello", "hey", "hallo", "salut", "bonjour", "hola", "eh", "ey", "嘿", "你好", "やあ", "おい"}
+
 	Languages = map[string]*Language{
 		"en-US": {
 			Code:             "en-US",
 			Label:            "English",
 			TranscriberCode:  "en-US",
-			SynthesizerModel: "en-US-News-N",
+			SynthesizerModel: "en-US-Wavenet-D",
 		},
 		"fr-FR": {
 			Code:             "fr-FR",
@@ -97,10 +100,12 @@ type GPTParticipant struct {
 	transcribers map[string]*Transcriber
 	synthesizer  *Synthesizer
 	completion   *ChatCompletion
-	isBusy       atomic.Bool
 
-	lock         sync.Mutex
-	conversation []*Sentence
+	isBusy atomic.Bool
+
+	lock              sync.Mutex
+	conversation      []*Sentence
+	activeParticipant *lksdk.RemoteParticipant // If set, answer his next sentence/question
 }
 
 func ConnectGPTParticipant(url, token string, language *Language, sttClient *stt.Client, ttsClient *tts.Client, gptClient *openai.Client) (*GPTParticipant, error) {
@@ -238,20 +243,70 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 		},
 	})
 
-	if result.IsFinal {
-		// Naive trigger implementation
-		triggerBot := true
-		if len(p.room.GetParticipants()) > 2 {
-			triggerBot = false
-			words := strings.Split(result.Text, " ")
-			if len(words) >= 4 {
-				triggerWords := strings.ToLower(strings.Join(words[:4], ""))
-				if strings.Contains(triggerWords, "kit") || strings.Contains(triggerWords, "gpt") {
-					triggerBot = true
+	// When there's only one participant in the meeting, no activation/trigger is needed
+	// The bot will answer directly.
+	//
+	// When there are multiple participants, activation is required.
+	// 1. Wait for activation sentence (Hey Kitt!)
+	// 2. If the participant stop speaking after the activation, ignore the next "isFinal" result
+	// 3. If activated, anwser the next sentence
+
+	p.lock.Lock()
+	activeParticipant := p.activeParticipant
+	p.lock.Unlock()
+
+	shouldAnswer := false
+	if len(p.room.GetParticipants()) == 2 {
+		// Always answer when we're alone with KITT
+		shouldAnswer = result.IsFinal
+	} else {
+		// Check if the participant is activating the KITT
+		justActivated := false
+		words := strings.Split(strings.TrimSpace(result.Text), " ")
+		if len(words) >= 2 { // No max length but only check the first 4 words
+			limit := len(words)
+			if limit > 4 {
+				limit = 4
+			}
+			text := strings.ToLower(strings.Join(words[:limit], ""))
+
+			// Check if text contains at least one GreentingWords
+			greeting := false
+			for _, greet := range GreetingWords {
+				if strings.Contains(text, greet) {
+					greeting = true
+					break
 				}
+			}
+			subject := strings.Contains(text, "kit") || strings.Contains(text, "gpt")
+			if greeting && subject {
+				if activeParticipant != rp {
+					// Activate the participant
+					justActivated = true
+					activeParticipant = rp
+
+					p.lock.Lock()
+					p.activeParticipant = rp
+					p.lock.Unlock()
+
+					logger.Debugw("activating KITT for participant", "participant", rp.Identity())
+					_ = p.sendStatePacket(state_Active)
+				}
+
 			}
 		}
 
+		if result.IsFinal {
+			shouldAnswer = activeParticipant == rp
+			if justActivated && len(words) <= 3 {
+				// Ignore if the participant stopped speaking after the activation
+				// Answer his next sentence
+				shouldAnswer = false
+			}
+		}
+	}
+
+	if shouldAnswer {
 		prompt := &Sentence{
 			ParticipantName: rp.Identity(),
 			IsBot:           false,
@@ -259,13 +314,16 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 		}
 
 		p.lock.Lock()
+
 		// Don't include the current prompt in the history when answering
 		history := make([]*Sentence, len(p.conversation))
 		copy(history, p.conversation)
 		p.conversation = append(p.conversation, prompt)
+
+		p.activeParticipant = nil
 		p.lock.Unlock()
 
-		if triggerBot && p.isBusy.CompareAndSwap(false, true) {
+		if shouldAnswer && p.isBusy.CompareAndSwap(false, true) {
 			go func() {
 				defer p.isBusy.Store(false)
 
@@ -392,6 +450,7 @@ const (
 	state_Idle     gptState = 0
 	state_Loading  gptState = 1
 	state_Speaking gptState = 2
+	state_Active   gptState = 3
 )
 
 type packet struct {
