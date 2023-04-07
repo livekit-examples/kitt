@@ -28,6 +28,11 @@ type ParticipantMetadata struct {
 	LanguageCode string `json:"languageCode,omitempty"`
 }
 
+type ActiveParticipant struct {
+	Connecting  bool
+	Participant *GPTParticipant
+}
+
 type LiveGPT struct {
 	config      *config.Config
 	roomService *lksdk.RoomServiceClient
@@ -41,7 +46,7 @@ type LiveGPT struct {
 	closedChan chan struct{}
 
 	participantsLock sync.Mutex
-	participants     map[string]*GPTParticipant
+	participants     map[string]*ActiveParticipant
 }
 
 func NewLiveGPT(config *config.Config, sttClient *stt.Client, ttsClient *tts.Client) *LiveGPT {
@@ -51,7 +56,7 @@ func NewLiveGPT(config *config.Config, sttClient *stt.Client, ttsClient *tts.Cli
 		keyProvider:  auth.NewSimpleKeyProvider(config.LiveKit.ApiKey, config.LiveKit.SecretKey),
 		doneChan:     make(chan struct{}),
 		closedChan:   make(chan struct{}),
-		participants: make(map[string]*GPTParticipant),
+		participants: make(map[string]*ActiveParticipant),
 		sttClient:    sttClient,
 		ttsClient:    ttsClient,
 	}
@@ -130,6 +135,10 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 			logger.Infow("gpt participant already connected", "room", event.Room.Name)
 			return
 		}
+
+		s.participants[event.Room.Sid] = &ActiveParticipant{
+			Connecting: true,
+		}
 		s.participantsLock.Unlock()
 
 		metadata := ParticipantMetadata{}
@@ -167,16 +176,19 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		}
 
 		s.participantsLock.Lock()
-		s.participants[event.Room.Sid] = p
+		s.participants[event.Room.Sid] = &ActiveParticipant{
+			Connecting:  false,
+			Participant: p,
+		}
 		s.participantsLock.Unlock()
 	} else if event.Event == webhook.EventParticipantLeft {
 		// If the GPT participant is alone, disconnect it
 		s.participantsLock.Lock()
 		defer s.participantsLock.Unlock()
-		if p, ok := s.participants[event.Room.Sid]; ok {
+		if ap, ok := s.participants[event.Room.Sid]; ok {
 			if event.Room.NumParticipants <= 1 {
 				logger.Infow("disconnecting gpt participant", "room", event.Room.Name)
-				p.Disconnect()
+				ap.Participant.Disconnect()
 				delete(s.participants, event.Room.Sid)
 			}
 		}
