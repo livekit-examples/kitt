@@ -16,17 +16,11 @@ export interface Packet {
   data: TranscriptPacket | StatePacket | ErrorPacket;
 }
 
-export interface Duration {
-  seconds?: number;
-  nanos?: number;
-}
-
 export interface TranscriptPacket {
   sid: string;
   name: string;
-  transcript: string;
+  text: string;
   isFinal: boolean;
-  resultEndTime: Duration;
 }
 
 export interface StatePacket {

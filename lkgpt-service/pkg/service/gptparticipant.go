@@ -236,10 +236,10 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 	_ = p.sendPacket(&packet{
 		Type: packet_Transcript,
 		Data: &transcriptPacket{
-			Sid:        rp.SID(),
-			Name:       rp.Name(),
-			Transcript: result.Text,
-			IsFinal:    result.IsFinal,
+			Sid:     rp.SID(),
+			Name:    rp.Name(),
+			Text:    result.Text,
+			IsFinal: result.IsFinal,
 		},
 	})
 
@@ -467,10 +467,10 @@ type packet struct {
 }
 
 type transcriptPacket struct {
-	Sid        string `json:"sid"`
-	Name       string `json:"name"`
-	Transcript string `json:"transcript"`
-	IsFinal    bool   `json:"isFinal"`
+	Sid     string `json:"sid"`
+	Name    string `json:"name"`
+	Text    string `json:"text"`
+	IsFinal bool   `json:"isFinal"`
 }
 
 type statePacket struct {

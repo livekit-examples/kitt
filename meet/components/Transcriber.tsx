@@ -1,12 +1,16 @@
 import { Box, Text } from '@chakra-ui/react';
 import { useDataChannel } from '@livekit/components-react';
 import { useEffect, useState } from 'react';
-import { Packet, PacketType, TranscriptPacket } from '../lib/packet';
+import { GPTState, Packet, PacketType, StatePacket, TranscriptPacket } from '../lib/packet';
 
 export const Transcriber = () => {
   const { message } = useDataChannel();
   const [visible, setVisible] = useState<boolean>(false);
-  const [packet, setPacket] = useState<TranscriptPacket>();
+
+  const [statePacket, setStatePacket] = useState<StatePacket>();
+  const [transcriptPacket, setTranscriptPacket] = useState<TranscriptPacket>();
+
+  // Transcription of every participant in the room
   const [transcripts, setTranscripts] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
@@ -15,27 +19,33 @@ export const Transcriber = () => {
     const decoder = new TextDecoder();
     const packet = JSON.parse(decoder.decode(message.payload)) as Packet;
     if (packet.type == PacketType.Transcript) {
-      const transcriptPacket = packet.data as TranscriptPacket;
-      setPacket(transcriptPacket);
+      setTranscriptPacket(packet.data as TranscriptPacket);
+    } else if (packet.type == PacketType.State) {
+      setStatePacket(packet.data as StatePacket);
     }
   }, [message]);
 
   useEffect(() => {
-    if (!packet) return;
+    if (!transcriptPacket) return;
 
-    setTranscripts(new Map(transcripts.set(packet.sid, packet.name + ': ' + packet.transcript)));
+    setTranscripts(
+      new Map(
+        transcripts.set(transcriptPacket.sid, transcriptPacket.name + ': ' + transcriptPacket.text),
+      ),
+    );
 
-    setVisible(true);
+    if (statePacket?.state == GPTState.Active) setVisible(true);
+
     const timeout = setTimeout(() => {
-      transcripts.delete(packet.sid);
-      setTranscripts(new Map(transcripts));
+      setTranscripts(new Map());
+
       setVisible(false);
     }, 5000);
 
     return () => clearTimeout(timeout);
-  }, [packet]);
+  }, [transcriptPacket, statePacket]);
 
-  return visible && packet ? (
+  return visible ? (
     <Box
       position="fixed"
       left="50%"
