@@ -289,9 +289,8 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 			}
 			subject := strings.Contains(text, "kit") || strings.Contains(text, "gpt")
 			if greeting && subject {
+				justActivated = true
 				if activeParticipant != rp {
-					// Activate the participant
-					justActivated = true
 					activeParticipant = rp
 
 					p.lock.Lock()
@@ -307,7 +306,7 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 
 		if result.IsFinal {
 			shouldAnswer = activeParticipant == rp
-			if justActivated && len(words) <= 3 {
+			if justActivated && len(words) <= 4 {
 				// Ignore if the participant stopped speaking after the activation
 				// Answer his next sentence
 				shouldAnswer = false

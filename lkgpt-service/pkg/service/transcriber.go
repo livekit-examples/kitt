@@ -244,7 +244,7 @@ func (t *Transcriber) newStream() (sttpb.Speech_StreamingRecognizeClient, error)
 						{Value: "Kit-t"},
 						{Value: "Kit"},
 					},
-					Boost: 19,
+					Boost: 8,
 				},
 			},
 			CustomClasses: []*sttpb.CustomClass{
