@@ -17,8 +17,7 @@ import {
   ParticipantTile,
 } from '@livekit/components-react';
 
-import { isEqualTrackRef, isTrackReference, WidgetState } from '@livekit/components-core';
-
+import { isEqualTrackRef, isTrackReference } from '@livekit/components-core';
 import { RoomEvent, Track } from 'livekit-client';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { usePinnedTracks } from '../hooks/usePinnedTracks';
@@ -26,7 +25,7 @@ import { GPTTile } from './GPTTile';
 import { Transcriber } from './Transcriber';
 import { ErrorMessage } from './ErrorMessage';
 
-const BotIdentity = 'kitt';
+const BotIdentity = 'KITT';
 
 export interface VideoConferenceProps extends React.HTMLAttributes<HTMLDivElement> {
   chatMessageFormatter?: MessageFormatter;

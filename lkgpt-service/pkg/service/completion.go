@@ -26,7 +26,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 	var sb strings.Builder
 	for _, s := range history {
 		if s.IsBot {
-			sb.WriteString(fmt.Sprintf("You (%s)", BotName))
+			sb.WriteString(fmt.Sprintf("You (%s)", BotIdentity))
 		} else {
 			sb.WriteString(s.ParticipantName)
 		}

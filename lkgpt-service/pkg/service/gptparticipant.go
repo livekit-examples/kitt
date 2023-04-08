@@ -24,8 +24,7 @@ var (
 	ErrCodecNotSupported = errors.New("this codec isn't supported")
 	ErrBusy              = errors.New("the gpt participant is already used")
 
-	BotIdentity = "kitt"
-	BotName     = "KITT"
+	BotIdentity = "KITT"
 
 	// Naive trigger implementation
 	GreetingWords = []string{"hi", "hello", "hey", "hallo", "salut", "bonjour", "hola", "eh", "ey", "嘿", "你好", "やあ", "おい"}
@@ -104,6 +103,7 @@ type GPTParticipant struct {
 	isBusy atomic.Bool
 
 	lock              sync.Mutex
+	onDisconnected    func()
 	conversation      []*Sentence
 	activeParticipant *lksdk.RemoteParticipant // If set, answer his next sentence/question
 }
@@ -129,6 +129,8 @@ func ConnectGPTParticipant(url, token string, language *Language, sttClient *stt
 			OnTrackSubscribed:   p.trackSubscribed,
 			OnTrackUnsubscribed: p.trackUnsubscribed,
 		},
+		OnParticipantDisconnected: p.participantDisconnected,
+		OnDisconnected:            p.disconnected,
 	}
 
 	room, err := lksdk.ConnectToRoomWithToken(url, token, roomCallback, lksdk.WithAutoSubscribe(false))
@@ -150,6 +152,13 @@ func ConnectGPTParticipant(url, token string, language *Language, sttClient *stt
 	p.room = room
 
 	return p, nil
+}
+
+func (p *GPTParticipant) OnDisconnected(f func()) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	p.onDisconnected = f
 }
 
 func (p *GPTParticipant) Disconnect() {
@@ -224,6 +233,24 @@ func (p *GPTParticipant) trackUnsubscribed(track *webrtc.TrackRemote, publicatio
 	if transcriber, ok := p.transcribers[rp.SID()]; ok {
 		transcriber.Close()
 		delete(p.transcribers, rp.SID())
+	}
+}
+
+func (p *GPTParticipant) participantDisconnected(rp *lksdk.RemoteParticipant) {
+	participants := p.room.GetParticipants()
+	// TODO(theomonnom) This should be 0?
+	if len(participants) <= 1 {
+		p.Disconnect()
+	}
+}
+
+func (p *GPTParticipant) disconnected() {
+	// Called when we are disconnected from the room
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	if p.onDisconnected != nil {
+		p.onDisconnected()
 	}
 }
 
@@ -339,14 +366,14 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 				defer p.sendStatePacket(state_Idle)
 
 				logger.Debugw("answering to", "participant", rp.SID(), "text", result.Text)
-				answer, err := p.Answer(history, prompt) // Will send state_Speaking
+				answer, err := p.answer(history, prompt) // Will send state_Speaking
 				if err != nil {
 					logger.Errorw("failed to answer", err, "participant", rp.SID(), "text", result.Text)
 					return
 				}
 
 				botAnswer := &Sentence{
-					ParticipantName: BotName,
+					ParticipantName: BotIdentity,
 					IsBot:           true,
 					Text:            answer,
 				}
@@ -360,7 +387,7 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 	}
 }
 
-func (p *GPTParticipant) Answer(history []*Sentence, prompt *Sentence) (string, error) {
+func (p *GPTParticipant) answer(history []*Sentence, prompt *Sentence) (string, error) {
 	stream, err := p.completion.Complete(p.ctx, history, prompt)
 	if err != nil {
 		return "", err

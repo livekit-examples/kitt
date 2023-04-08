@@ -45,8 +45,8 @@ type LiveGPT struct {
 	doneChan   chan struct{}
 	closedChan chan struct{}
 
-	participantsLock sync.Mutex
-	participants     map[string]*ActiveParticipant
+	lock         sync.Mutex
+	participants map[string]*ActiveParticipant
 }
 
 func NewLiveGPT(config *config.Config, sttClient *stt.Client, ttsClient *tts.Client) *LiveGPT {
@@ -127,11 +127,10 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		// TODO(theomonnom): Stateless?
 		// If the GPT participant is not connected, connect it
-		s.participantsLock.Lock()
+		s.lock.Lock()
 		if _, ok := s.participants[event.Room.Sid]; ok {
-			s.participantsLock.Unlock()
+			s.lock.Unlock()
 			logger.Infow("gpt participant already connected", "room", event.Room.Name)
 			return
 		}
@@ -139,7 +138,7 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		s.participants[event.Room.Sid] = &ActiveParticipant{
 			Connecting: true,
 		}
-		s.participantsLock.Unlock()
+		s.lock.Unlock()
 
 		metadata := ParticipantMetadata{}
 		if event.Participant.Metadata != "" {
@@ -172,28 +171,25 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, language, s.sttClient, s.ttsClient, s.gptClient)
 		if err != nil {
 			logger.Errorw("error connecting gpt participant", err, "room", event.Room.Name)
+			s.lock.Lock()
+			delete(s.participants, event.Room.Sid)
+			s.lock.Unlock()
 			return
 		}
 
-		s.participantsLock.Lock()
+		s.lock.Lock()
 		s.participants[event.Room.Sid] = &ActiveParticipant{
 			Connecting:  false,
 			Participant: p,
 		}
-		s.participantsLock.Unlock()
-	} else if event.Event == webhook.EventParticipantLeft {
-		// If the GPT participant is alone, disconnect it
-		s.participantsLock.Lock()
-		defer s.participantsLock.Unlock()
-		if ap, ok := s.participants[event.Room.Sid]; ok {
-			if event.Room.NumParticipants <= 1 {
-				logger.Infow("disconnecting gpt participant", "room", event.Room.Name)
-				if ap.Participant != nil {
-					ap.Participant.Disconnect()
-				}
-				delete(s.participants, event.Room.Sid)
-			}
-		}
+		s.lock.Unlock()
+
+		p.OnDisconnected(func() {
+			logger.Infow("gpt participant disconnected", "room", event.Room.Name)
+			s.lock.Lock()
+			delete(s.participants, event.Room.Sid)
+			s.lock.Unlock()
+		})
 	}
 }
 
