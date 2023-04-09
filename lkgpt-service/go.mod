@@ -12,6 +12,8 @@ require (
 	github.com/sashabaranov/go-openai v1.5.7
 	github.com/urfave/cli/v2 v2.25.1
 	github.com/urfave/negroni v1.0.0
+	golang.org/x/exp v0.0.0-20230224173230-c95f2b4c22f2
+	google.golang.org/api v0.114.0
 	google.golang.org/grpc v1.53.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -79,7 +81,6 @@ require (
 	golang.org/x/oauth2 v0.6.0 // indirect
 	golang.org/x/sys v0.6.0 // indirect
 	golang.org/x/text v0.8.0 // indirect
-	google.golang.org/api v0.114.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20230320184635-7606e756e683 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
