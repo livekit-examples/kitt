@@ -18,6 +18,7 @@ import (
 	lksdk "github.com/livekit/server-sdk-go"
 	"github.com/pion/webrtc/v3"
 	"github.com/sashabaranov/go-openai"
+	"golang.org/x/exp/slices"
 )
 
 var (
@@ -26,8 +27,9 @@ var (
 
 	BotIdentity = "KITT"
 
-	// Naive trigger implementation
+	// Naive trigger/activation implementation
 	GreetingWords = []string{"hi", "hello", "hey", "hallo", "salut", "bonjour", "hola", "eh", "ey", "嘿", "你好", "やあ", "おい"}
+	NameWords     = []string{"kit", "gpt", "kitt", "livekit", "live-kit"}
 
 	Languages = map[string]*Language{
 		"en-US": {
@@ -298,24 +300,30 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 	} else {
 		// Check if the participant is activating the KITT
 		justActivated := false
-		words := strings.Split(strings.TrimSpace(result.Text), " ")
-		if len(words) >= 2 { // No max length but only check the first 4 words
+		words := strings.Split(strings.ToLower(strings.TrimSpace(result.Text)), " ")
+		if len(words) >= 2 { // No max length but only check the first 3 words
 			limit := len(words)
-			if limit > 4 {
-				limit = 4
+			if limit > 3 {
+				limit = 3
 			}
-			text := strings.ToLower(strings.Join(words[:limit], ""))
+			activationWords := words[:limit]
 
 			// Check if text contains at least one GreentingWords
-			greeting := false
+			greetIndex := -1
 			for _, greet := range GreetingWords {
-				if strings.Contains(text, greet) {
-					greeting = true
+				if greetIndex = slices.Index(activationWords, greet); greetIndex != -1 {
 					break
 				}
 			}
-			subject := strings.Contains(text, "kit") || strings.Contains(text, "gpt")
-			if greeting && subject {
+
+			nameIndex := -1
+			for _, name := range NameWords {
+				if nameIndex = slices.Index(activationWords, name); nameIndex != -1 {
+					break
+				}
+			}
+
+			if greetIndex < nameIndex && greetIndex != -1 {
 				justActivated = true
 				if activeParticipant != rp {
 					activeParticipant = rp
@@ -324,16 +332,15 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 					p.activeParticipant = rp
 					p.lock.Unlock()
 
-					logger.Debugw("activating KITT for participant", "participant", rp.Identity())
+					logger.Debugw("activating KITT for participant", "activationText", strings.Join(activationWords, " "), "participant", rp.Identity())
 					_ = p.sendStatePacket(state_Active)
 				}
-
 			}
 		}
 
 		if result.IsFinal {
 			shouldAnswer = activeParticipant == rp
-			if justActivated && len(words) <= 4 {
+			if justActivated && len(words) <= 3 {
 				// Ignore if the participant stopped speaking after the activation
 				// Answer his next sentence
 				shouldAnswer = false

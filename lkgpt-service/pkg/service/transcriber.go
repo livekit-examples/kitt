@@ -174,7 +174,7 @@ func (t *Transcriber) start() error {
 			}
 
 			// Read the whole transcription and put inside one string
-			// We don't need to process each part individually
+			// We don't need to process each part individually (atm?)
 			var sb strings.Builder
 			final := false
 			for _, result := range resp.Results {
@@ -244,7 +244,7 @@ func (t *Transcriber) newStream() (sttpb.Speech_StreamingRecognizeClient, error)
 						{Value: "Kit-t"},
 						{Value: "Kit"},
 					},
-					Boost: 8,
+					Boost: 10,
 				},
 			},
 			CustomClasses: []*sttpb.CustomClass{
