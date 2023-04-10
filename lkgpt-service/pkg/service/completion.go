@@ -43,7 +43,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 				Content: "You are a voice assistant in a meeting named KITT, make concise/short answers. " +
 					"Finish your requests or questions using a question mark (?)" +
 					"Always prepend the language code you used before answering. " +
-					"e.g: fr-FR sentence in French..",
+					"e.g: en-US sentence in English..",
 			},
 			{
 				Role:    openai.ChatMessageRoleUser,
