@@ -79,6 +79,10 @@ type Language struct {
 	SynthesizerModel string
 }
 
+type ParticipantMetadata struct {
+	LanguageCode string `json:"languageCode,omitempty"`
+}
+
 // A sentence in the conversation (Used for the history)
 type Sentence struct {
 	ParticipantName string
@@ -90,7 +94,6 @@ type GPTParticipant struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	language  *Language
 	room      *lksdk.Room
 	sttClient *stt.Client
 	ttsClient *tts.Client
@@ -110,7 +113,7 @@ type GPTParticipant struct {
 	activeParticipant *lksdk.RemoteParticipant // If set, answer his next sentence/question
 }
 
-func ConnectGPTParticipant(url, token string, language *Language, sttClient *stt.Client, ttsClient *tts.Client, gptClient *openai.Client) (*GPTParticipant, error) {
+func ConnectGPTParticipant(url, token string, sttClient *stt.Client, ttsClient *tts.Client, gptClient *openai.Client) (*GPTParticipant, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	p := &GPTParticipant{
@@ -119,10 +122,9 @@ func ConnectGPTParticipant(url, token string, language *Language, sttClient *stt
 		sttClient:    sttClient,
 		ttsClient:    ttsClient,
 		gptClient:    gptClient,
-		language:     language,
 		transcribers: make(map[string]*Transcriber),
 		synthesizer:  NewSynthesizer(ttsClient),
-		completion:   NewChatCompletion(gptClient, language),
+		completion:   NewChatCompletion(gptClient),
 	}
 
 	roomCallback := &lksdk.RoomCallback{
@@ -193,7 +195,22 @@ func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication 
 		return
 	}
 
-	transcriber, err := NewTranscriber(track.Codec(), p.sttClient, p.language)
+	metadata := ParticipantMetadata{}
+	if rp.Metadata() != "" {
+		err := json.Unmarshal([]byte(rp.Metadata()), &metadata)
+		if err != nil {
+			logger.Warnw("error unmarshalling participant metadata", err)
+		}
+	}
+
+	language, ok := Languages[metadata.LanguageCode]
+	if !ok {
+		logger.Debugw("wtf")
+		language = DefaultLanguage
+	}
+
+	logger.Infow("starting to transcribe", "participant", rp.Identity(), "language", language.Code)
+	transcriber, err := NewTranscriber(track.Codec(), p.sttClient, language)
 	if err != nil {
 		logger.Errorw("failed to create the transcriber", err)
 		return
@@ -202,7 +219,7 @@ func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication 
 	p.transcribers[rp.SID()] = transcriber
 	go func() {
 		for result := range transcriber.Results() {
-			p.onTranscriptionReceived(result, rp)
+			p.onTranscriptionReceived(result, rp, transcriber)
 		}
 	}()
 
@@ -256,7 +273,7 @@ func (p *GPTParticipant) disconnected() {
 	}
 }
 
-func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lksdk.RemoteParticipant) {
+func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lksdk.RemoteParticipant, transcriber *Transcriber) {
 	if result.Error != nil {
 		_ = p.sendErrorPacket(fmt.Sprintf("Sorry, an error occured while transcribing %s's speech using Google STT", rp.Identity()))
 		return
@@ -373,7 +390,7 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 				defer p.sendStatePacket(state_Idle)
 
 				logger.Debugw("answering to", "participant", rp.SID(), "text", result.Text)
-				answer, err := p.answer(history, prompt) // Will send state_Speaking
+				answer, err := p.answer(history, prompt, transcriber.Language()) // Will send state_Speaking
 				if err != nil {
 					logger.Errorw("failed to answer", err, "participant", rp.SID(), "text", result.Text)
 					return
@@ -394,8 +411,8 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 	}
 }
 
-func (p *GPTParticipant) answer(history []*Sentence, prompt *Sentence) (string, error) {
-	stream, err := p.completion.Complete(p.ctx, history, prompt)
+func (p *GPTParticipant) answer(history []*Sentence, prompt *Sentence, language *Language) (string, error) {
+	stream, err := p.completion.Complete(p.ctx, history, prompt, language)
 	if err != nil {
 		return "", err
 	}
@@ -408,7 +425,6 @@ func (p *GPTParticipant) answer(history []*Sentence, prompt *Sentence) (string, 
 	})
 
 	sb := strings.Builder{}
-	language := p.language // Used language for the current sentence
 	for {
 		sentence, err := stream.Recv()
 		if err != nil {

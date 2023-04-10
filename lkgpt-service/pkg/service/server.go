@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -23,10 +22,6 @@ import (
 	lksdk "github.com/livekit/server-sdk-go"
 	openai "github.com/sashabaranov/go-openai"
 )
-
-type ParticipantMetadata struct {
-	LanguageCode string `json:"languageCode,omitempty"`
-}
 
 type ActiveParticipant struct {
 	Connecting  bool
@@ -140,20 +135,6 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		}
 		s.lock.Unlock()
 
-		metadata := ParticipantMetadata{}
-		if event.Participant.Metadata != "" {
-			err := json.Unmarshal([]byte(event.Participant.Metadata), &metadata)
-			if err != nil {
-				logger.Errorw("error unmarshalling participant metadata", err)
-				return
-			}
-		}
-
-		language, ok := Languages[metadata.LanguageCode]
-		if !ok {
-			language = DefaultLanguage
-		}
-
 		token := s.roomService.CreateToken().
 			SetIdentity(BotIdentity).
 			AddGrant(&auth.VideoGrant{
@@ -167,8 +148,8 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		logger.Infow("connecting gpt participant", "room", event.Room.Name, "language", language.Code)
-		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, language, s.sttClient, s.ttsClient, s.gptClient)
+		logger.Infow("connecting gpt participant", "room", event.Room.Name)
+		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, s.sttClient, s.ttsClient, s.gptClient)
 		if err != nil {
 			logger.Errorw("error connecting gpt participant", err, "room", event.Room.Name)
 			s.lock.Lock()

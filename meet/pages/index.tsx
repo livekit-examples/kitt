@@ -1,12 +1,11 @@
 import { useRouter } from 'next/router';
-import React, { useRef } from 'react';
+import React from 'react';
 import styles from '../styles/Home.module.css';
 
 const Home = () => {
   const router = useRouter();
-  const ref = useRef<HTMLSelectElement>(null);
   const startMeeting = () => {
-    router.push({ pathname: `/rooms/${generateRoomId()}`, query: { languageCode: ref.current?.value } });
+    router.push(`/rooms/${generateRoomId()}`);
   };
 
   return (
@@ -16,15 +15,6 @@ const Home = () => {
         <h2>Use ChatGPT with LiveKit</h2>
       </div>
       <div className={styles.startContainer}>
-        <p style={{ marginTop: 0 }}>Try it now by creating a new room. Choose the language of the bot:</p>
-        <select ref={ref} className={styles.startSelect}>
-          <option value="en-US">English (United States)</option>
-          <option value="fr-FR">French (France)</option>
-          <option value="de-DE">German (Germany)</option>
-          <option value="jp-JP">Japanese</option>
-          <option value="cmn-CH">Mandarin Chinese</option>
-          <option value="es-ES">Spanish</option>
-        </select>
         <button className="lk-button" onClick={startMeeting}>
           Start Meeting
         </button>

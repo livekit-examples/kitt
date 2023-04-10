@@ -7,7 +7,6 @@ import {
   ControlBar,
   FocusLayout,
   FocusLayoutContainer,
-  Chat,
   ConnectionStateToast,
   CarouselView,
   GridLayout,

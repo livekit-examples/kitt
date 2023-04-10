@@ -19,10 +19,9 @@
 }
 
 .startSelect {
-  padding: 0.5rem;
-  font-size: 0.9rem;
-  background-color: rgba(255, 255, 255, 0.09);
-  border-radius: 0.5rem;
-  border: 0;
-  border-right: 0.5rem solid transparent;
+  font-family: var(--lk-font-family);
+  padding: 0.8rem 1rem;
+  background-color: var(--lk-control-bg);
+  border: 1px solid var(--lk-border-color);
+  border-radius: var(--lk-border-radius);
 }

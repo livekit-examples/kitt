@@ -1,11 +1,9 @@
 import {
   LiveKitRoom,
-  PreJoin,
-  LocalUserChoices,
   useToken,
   formatChatMessageLinks,
 } from '@livekit/components-react';
-import { RoomConnectOptions, RoomOptions, VideoPresets } from 'livekit-client';
+import { RoomOptions, VideoPresets } from 'livekit-client';
 
 import type { NextPage } from 'next';
 import Head from 'next/head';
@@ -13,10 +11,11 @@ import { useRouter } from 'next/router';
 import { useMemo, useState } from 'react';
 import { useServerUrl } from '../../lib/client-utils';
 import { VideoConference } from '../../components/VideoConference';
+import { LocalUserChoices, PreJoin } from '../../components/PreJoin';
 
 const Home: NextPage = () => {
   const router = useRouter();
-  const { name: roomName, languageCode } = router.query;
+  const { name: roomName } = router.query;
 
   const [preJoinChoices, setPreJoinChoices] = useState<LocalUserChoices | undefined>(undefined);
   return (
@@ -31,13 +30,13 @@ const Home: NextPage = () => {
           <ActiveRoom
             roomName={roomName}
             userChoices={preJoinChoices}
-            languageCode={languageCode as string | undefined}
             onLeave={() => {
-              router.push('/');
+              setPreJoinChoices(undefined);
             }}
           ></ActiveRoom>
         ) : (
           <div style={{ display: 'grid', placeItems: 'center', height: '100%' }}>
+
             <PreJoin
               onError={(err) => console.log('error while setting up prejoin', err)}
               defaults={{
@@ -63,16 +62,15 @@ type ActiveRoomProps = {
   userChoices: LocalUserChoices;
   roomName: string;
   region?: string;
-  languageCode?: string;
   onLeave?: () => void;
 };
 
-const ActiveRoom = ({ roomName, userChoices, onLeave, languageCode }: ActiveRoomProps) => {
+const ActiveRoom = ({ roomName, userChoices, onLeave }: ActiveRoomProps) => {
   const token = useToken(process.env.NEXT_PUBLIC_LK_TOKEN_ENDPOINT, roomName, {
     userInfo: {
       identity: userChoices.username,
       name: userChoices.username,
-      metadata: JSON.stringify({ languageCode: languageCode }),
+      metadata: JSON.stringify({ languageCode: userChoices.language }),
     },
   });
 

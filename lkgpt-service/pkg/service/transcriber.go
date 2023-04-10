@@ -65,6 +65,10 @@ func NewTranscriber(rtpCodec webrtc.RTPCodecParameters, speechClient *stt.Client
 	return t, nil
 }
 
+func (t *Transcriber) Language() *Language {
+	return t.language
+}
+
 func (t *Transcriber) WriteRTP(pkt *rtp.Packet) error {
 	t.lock.Lock()
 	defer t.lock.Unlock()
