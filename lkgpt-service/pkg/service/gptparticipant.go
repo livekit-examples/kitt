@@ -173,6 +173,12 @@ func (p *GPTParticipant) Disconnect() {
 	}
 
 	p.cancel()
+
+	p.lock.Lock()
+	if p.onDisconnected != nil {
+		p.onDisconnected()
+	}
+	p.lock.Unlock()
 }
 
 func (p *GPTParticipant) trackPublished(publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
@@ -256,6 +262,7 @@ func (p *GPTParticipant) trackUnsubscribed(track *webrtc.TrackRemote, publicatio
 
 func (p *GPTParticipant) participantDisconnected(rp *lksdk.RemoteParticipant) {
 	participants := p.room.GetParticipants()
+	logger.Debugw("participant disconnected", "numParticipants", len(participants))
 	// TODO(theomonnom) This should be 0?
 	if len(participants) <= 1 {
 		p.Disconnect()
@@ -263,13 +270,7 @@ func (p *GPTParticipant) participantDisconnected(rp *lksdk.RemoteParticipant) {
 }
 
 func (p *GPTParticipant) disconnected() {
-	// Called when we are disconnected from the room
-	p.lock.Lock()
-	defer p.lock.Unlock()
-
-	if p.onDisconnected != nil {
-		p.onDisconnected()
-	}
+	p.Disconnect()
 }
 
 func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lksdk.RemoteParticipant, transcriber *Transcriber) {
