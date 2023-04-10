@@ -126,7 +126,7 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		s.lock.Lock()
 		if _, ok := s.participants[event.Room.Sid]; ok {
 			s.lock.Unlock()
-			logger.Infow("gpt participant already connected", "room", event.Room.Name)
+			logger.Infow("gpt participant already connected", "room", event.Room.Name, "participantCount", event.Room.NumParticipants)
 			return
 		}
 
