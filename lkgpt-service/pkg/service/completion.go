@@ -42,8 +42,9 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 				Role: openai.ChatMessageRoleSystem,
 				Content: "You are a voice assistant in a meeting named KITT, make concise/short answers. " +
 					"Finish your requests or questions using a question mark (?). " +
+					"Answer in the asked language. " +
 					"Always prepend the language code you used before answering. " +
-					"e.g: en-US sentence in English..",
+					"e.g: en-US sentence in English.; fr-FR phrase en français. ",
 			},
 			{
 				Role:    openai.ChatMessageRoleUser,
@@ -51,7 +52,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 			},
 			{
 				Role:    openai.ChatMessageRoleSystem,
-				Content: fmt.Sprintf("You are talking to %s", prompt.ParticipantName),
+				Content: fmt.Sprintf("You are talking to %s, the current language is %s (%s)", prompt.ParticipantName, language.Label, language.Code),
 			},
 			{
 				Role:    openai.ChatMessageRoleUser,

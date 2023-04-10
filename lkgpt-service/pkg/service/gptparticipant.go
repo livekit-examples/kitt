@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	stt "cloud.google.com/go/speech/apiv1"
 	tts "cloud.google.com/go/texttospeech/apiv1"
@@ -30,6 +31,8 @@ var (
 	// Naive trigger/activation implementation
 	GreetingWords = []string{"hi", "hello", "hey", "hallo", "salut", "bonjour", "hola", "eh", "ey", "嘿", "你好", "やあ", "おい"}
 	NameWords     = []string{"kit", "gpt", "kitt", "livekit", "live-kit"}
+
+	ActivationTimeout = 3 * time.Second // If the participant didn't say anything for this duration, stop listening
 
 	Languages = map[string]*Language{
 		"en-US": {
@@ -107,10 +110,13 @@ type GPTParticipant struct {
 
 	isBusy atomic.Bool
 
-	lock              sync.Mutex
-	onDisconnected    func()
-	conversation      []*Sentence
+	lock           sync.Mutex
+	onDisconnected func()
+	conversation   []*Sentence
+
+	// Current active participant
 	activeParticipant *lksdk.RemoteParticipant // If set, answer his next sentence/question
+	lastActivity      time.Time
 }
 
 func ConnectGPTParticipant(url, token string, sttClient *stt.Client, ttsClient *tts.Client, gptClient *openai.Client) (*GPTParticipant, error) {
@@ -273,6 +279,40 @@ func (p *GPTParticipant) disconnected() {
 	p.Disconnect()
 }
 
+// In a multi-user meeting, the bot will only answer when it is activated.
+// Activate the participant rp
+func (p *GPTParticipant) activateParticipant(rp *lksdk.RemoteParticipant) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	if p.activeParticipant != rp {
+		p.activeParticipant = rp
+		p.lastActivity = time.Now()
+		_ = p.sendStatePacket(state_Active)
+	}
+
+	go func() {
+		time.Sleep(ActivationTimeout)
+		for {
+			p.lock.Lock()
+			if p.isBusy.Load() || p.activeParticipant != rp {
+				p.lock.Unlock()
+				return
+			}
+
+			if time.Since(p.lastActivity) >= ActivationTimeout {
+				p.activeParticipant = nil
+				_ = p.sendStatePacket(state_Idle)
+				p.lock.Unlock()
+				return
+			}
+
+			time.Sleep(1 * time.Second)
+		}
+	}()
+
+}
+
 func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lksdk.RemoteParticipant, transcriber *Transcriber) {
 	if result.Error != nil {
 		_ = p.sendErrorPacket(fmt.Sprintf("Sorry, an error occured while transcribing %s's speech using Google STT", rp.Identity()))
@@ -299,18 +339,17 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 
 	p.lock.Lock()
 	activeParticipant := p.activeParticipant
+	if activeParticipant == rp {
+		p.lastActivity = time.Now()
+	}
 	p.lock.Unlock()
 
 	shouldAnswer := false
 	if len(p.room.GetParticipants()) == 2 {
 		// Always answer when we're alone with KITT
 		if activeParticipant == nil {
-			// Still activate it to play the right animations clientside
 			activeParticipant = rp
-			p.lock.Lock()
-			p.activeParticipant = activeParticipant
-			p.lock.Unlock()
-			_ = p.sendStatePacket(state_Active)
+			p.activateParticipant(rp)
 		}
 
 		shouldAnswer = result.IsFinal
@@ -345,12 +384,8 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 				if activeParticipant != rp {
 					activeParticipant = rp
 
-					p.lock.Lock()
-					p.activeParticipant = rp
-					p.lock.Unlock()
-
 					logger.Debugw("activating KITT for participant", "activationText", strings.Join(activationWords, " "), "participant", rp.Identity())
-					_ = p.sendStatePacket(state_Active)
+					p.activateParticipant(rp)
 				}
 			}
 		}
@@ -385,15 +420,23 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 		if shouldAnswer && p.isBusy.CompareAndSwap(false, true) {
 			go func() {
 				defer p.isBusy.Store(false)
-
 				_ = p.sendStatePacket(state_Loading)
-				defer p.sendStatePacket(state_Idle)
 
 				logger.Debugw("answering to", "participant", rp.SID(), "text", result.Text)
-				answer, err := p.answer(history, prompt, transcriber.Language()) // Will send state_Speaking
+				answer, err := p.answer(history, prompt, rp, transcriber.Language()) // Will send state_Speaking
 				if err != nil {
 					logger.Errorw("failed to answer", err, "participant", rp.SID(), "text", result.Text)
+					p.sendStatePacket(state_Idle)
 					return
+				}
+
+				// KITT finished speaking, check if the last sentence was a question.
+				// If so, auto activate the current participant
+				if strings.HasSuffix(answer, "?") {
+					// Checking this suffix should be enough
+					p.activateParticipant(rp)
+				} else {
+					p.sendStatePacket(state_Idle)
 				}
 
 				botAnswer := &Sentence{
@@ -411,9 +454,14 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 	}
 }
 
-func (p *GPTParticipant) answer(history []*Sentence, prompt *Sentence, language *Language) (string, error) {
+func (p *GPTParticipant) answer(history []*Sentence, prompt *Sentence, rp *lksdk.RemoteParticipant, language *Language) (string, error) {
 	stream, err := p.completion.Complete(p.ctx, history, prompt, language)
 	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return "", nil
+		}
+
+		_ = p.sendErrorPacket("Sorry, an error occured while communicating with OpenAI. Max context length reached?")
 		return "", err
 	}
 
@@ -453,7 +501,9 @@ func (p *GPTParticipant) answer(history []*Sentence, prompt *Sentence, language 
 			language = lang
 		}
 
-		sb.WriteString(sentence)
+		sb.WriteString(trimSentence)
+		sb.WriteString(" ")
+
 		tmpLast := last
 		tmpLang := language
 		currentCh := make(chan struct{})
@@ -490,7 +540,8 @@ func (p *GPTParticipant) answer(history []*Sentence, prompt *Sentence, language 
 	}
 
 	wg.Wait()
-	return sb.String(), nil
+
+	return strings.TrimSpace(sb.String()), nil
 }
 
 // Packets sent over the datachannels

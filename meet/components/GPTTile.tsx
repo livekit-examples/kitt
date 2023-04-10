@@ -112,7 +112,7 @@ export const GPTTile = ({ participant, ...htmlProps }: GPTTileProps) => {
               boxShadow: '0px 0px 10px #E64938',
               thinkingStartRange: { start: -4, end: 0 },
               thinkingTargetRange: { start: 4, end: 8 },
-              thinkingSpeed: 0.2,
+              thinkingSpeed: 2,
             }}
           />
         </Box>
