@@ -205,7 +205,6 @@ func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication 
 
 	language, ok := Languages[metadata.LanguageCode]
 	if !ok {
-		logger.Debugw("wtf")
 		language = DefaultLanguage
 	}
 

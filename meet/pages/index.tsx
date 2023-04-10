@@ -1,25 +1,18 @@
 import { useRouter } from 'next/router';
 import React from 'react';
-import styles from '../styles/Home.module.css';
 
 const Home = () => {
   const router = useRouter();
-  const startMeeting = () => {
+
+  React.useEffect(() => {
+    // Not the best way to do it..
+    // We got redirected here when coming from livekit.io/kitt
+    // This repo should work without the livekit site
     router.push(`/rooms/${generateRoomId()}`);
-  };
+  });
 
   return (
-    <main className={styles.main} data-lk-theme="default">
-      <div className="header">
-        {<img src="/images/livekit-meet-home.svg" alt="LiveKit Meet" width="360" height="45" />}
-        <h2>Use ChatGPT with LiveKit</h2>
-      </div>
-      <div className={styles.startContainer}>
-        <button className="lk-button" onClick={startMeeting}>
-          Start Meeting
-        </button>
-      </div>
-    </main>
+    <></>
   );
 };
 

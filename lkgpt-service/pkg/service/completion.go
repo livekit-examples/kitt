@@ -46,8 +46,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 			{
 				Role: openai.ChatMessageRoleSystem,
 				Content: "You are a voice assistant in a meeting named KITT, make concise/short answers. " +
-					fmt.Sprintf("Always answer in %s. ", language.Label) +
-					"Always prepend the right language code before answering: " + voiceSb.String() +
+					"Always prepend the used language code before answering: " + voiceSb.String() +
 					"e.g: <fr-FR> <sentence in French>",
 			},
 			{
