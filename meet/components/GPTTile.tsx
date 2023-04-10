@@ -6,6 +6,7 @@ import {
   useDataChannel,
   useEnsureParticipant,
   useMediaTrack,
+  useParticipants,
   useParticipantTile,
 } from '@livekit/components-react';
 import { Participant, Track } from 'livekit-client';
@@ -22,6 +23,7 @@ export type GPTTileProps = React.HTMLAttributes<HTMLDivElement> & {
 const decoder = new TextDecoder();
 
 export const GPTTile = ({ participant, ...htmlProps }: GPTTileProps) => {
+  const participants = useParticipants();
   const { message } = useDataChannel();
   const [volume, setVolume] = React.useState(0);
   const [state, setState] = React.useState<GPTState>(GPTState.Idle);
@@ -39,8 +41,7 @@ export const GPTTile = ({ participant, ...htmlProps }: GPTTileProps) => {
       const statePacket = packet.data as StatePacket;
       setState(statePacket.state);
 
-      if (statePacket.state == GPTState.Active) {
-        // Status changed to Active
+      if (statePacket.state == GPTState.Active && participants.length > 2) {
         activateSoundRef.current?.play();
       }
     }
