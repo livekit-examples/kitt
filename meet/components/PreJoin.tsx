@@ -1,14 +1,14 @@
+import { log } from '@livekit/components-core';
+import { MediaDeviceMenu, TrackToggle, useMediaDevices } from '@livekit/components-react';
 import {
-  createLocalAudioTrack,
-  createLocalVideoTrack,
   LocalAudioTrack,
   LocalVideoTrack,
   Track,
   VideoPresets,
+  createLocalAudioTrack,
+  createLocalVideoTrack,
 } from 'livekit-client';
 import * as React from 'react';
-import { log } from '@livekit/components-core';
-import { MediaDeviceMenu, TrackToggle, useMediaDevices } from '@livekit/components-react';
 
 import styles from '../styles/Home.module.css';
 
@@ -106,9 +106,9 @@ function usePreviewDevice<T extends LocalVideoTrack | LocalAudioTrack>(
       const track =
         kind === 'videoinput'
           ? await createLocalVideoTrack({
-            deviceId: deviceId,
-            resolution: VideoPresets.h720.resolution,
-          })
+              deviceId: deviceId,
+              resolution: VideoPresets.h720.resolution,
+            })
           : await createLocalAudioTrack({ deviceId });
 
       const newDeviceId = await track.getDeviceId();
@@ -348,14 +348,17 @@ export const PreJoin = ({
       </div>
 
       <form className="lk-username-container">
-        <select className={styles.startSelect} onChange={(e) => {
-          setLang(e.target.value);
-        }}>
+        <select
+          className={styles.startSelect}
+          onChange={(e) => {
+            setLang(e.target.value);
+          }}
+        >
           <option value="en-US">English (United States)</option>
           <option value="fr-FR">French (France)</option>
           <option value="de-DE">German (Germany)</option>
           <option value="jp-JP">Japanese</option>
-          <option value="cmn-CH">Mandarin Chinese</option>
+          <option value="zh">Mandarin Chinese</option>
           <option value="es-ES">Spanish</option>
         </select>
         <input
