@@ -30,6 +30,7 @@ The `meet` service is a NexJS that implements a typical video call app. The `lkg
 
 The following diagram illustrates this:
 
-<img width="1193" alt="Screen Shot 2023-01-18 at 5 08 39 PM" src="https://user-images.githubusercontent.com/8453967/231060393-8d77eda6-a569-444f-914c-84b06939ca95.png">
+![kitt-demo-architecture](https://user-images.githubusercontent.com/8453967/231060467-a2984951-71d9-45f4-ad5d-9eb35be229de.svg)
+
 
 
