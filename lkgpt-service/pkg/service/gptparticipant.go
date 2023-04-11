@@ -59,8 +59,8 @@ var (
 			TranscriberCode:  "ja-JP",
 			SynthesizerModel: "ja-JP-Wavenet-D",
 		},
-		"cmn-CN": {
-			Code:             "cmn-CN",
+		"zh": {
+			Code:             "zh",
 			Label:            "Mandarin Chinese",
 			TranscriberCode:  "zh",
 			SynthesizerModel: "cmn-CN-Wavenet-C",
