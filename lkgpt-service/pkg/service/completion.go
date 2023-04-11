@@ -40,7 +40,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role: openai.ChatMessageRoleSystem,
-				Content: "You are a voice assistant in a meeting named KITT, make concise/short answers. " +
+				Content: "You are a voice assistant in a meeting named KITT, make concise/short answers but friendly and personable." +
 					"Finish your requests or questions using a question mark (?). ",
 			},
 			{
