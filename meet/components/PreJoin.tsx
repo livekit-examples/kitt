@@ -357,8 +357,6 @@ export const PreJoin = ({
           <option value="en-US">English (United States)</option>
           <option value="fr-FR">French (France)</option>
           <option value="de-DE">German (Germany)</option>
-          <option value="jp-JP">Japanese</option>
-          <option value="zh">Mandarin Chinese</option>
           <option value="es-ES">Spanish</option>
         </select>
         <input

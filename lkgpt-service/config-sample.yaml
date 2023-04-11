@@ -7,11 +7,13 @@
 development: true
 logging:
   json: false
-  level: debug 
+  level: debug
 
 livekit:
   url: your-livekit-url
   api_key: your-api-token
   secret_key: your-api-secret
 
-port: 3000
+openai_api_key: your-openai-api-key
+
+port: 3001
