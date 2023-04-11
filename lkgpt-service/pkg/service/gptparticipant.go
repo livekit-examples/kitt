@@ -31,7 +31,7 @@ var (
 
 	// Naive trigger/activation implementation
 	GreetingWords = []string{"hi", "hello", "hey", "hallo", "salut", "bonjour", "hola", "eh", "ey"}
-	NameWords     = []string{"kit", "gpt", "kitt", "livekit", "live-kit"}
+	NameWords     = []string{"kit", "gpt", "kitt", "livekit", "live-kit", "kid"}
 
 	ActivationTimeout = 3 * time.Second // If the participant didn't say anything for this duration, stop listening
 
