@@ -7,11 +7,14 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/livekit-examples/livegpt/pkg/config"
 	"github.com/urfave/negroni"
+
+	"github.com/livekit-examples/livegpt/pkg/config"
+	"github.com/livekit/protocol/livekit"
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/logger"
@@ -19,8 +22,9 @@ import (
 
 	stt "cloud.google.com/go/speech/apiv1"
 	tts "cloud.google.com/go/texttospeech/apiv1"
+	"github.com/sashabaranov/go-openai"
+
 	lksdk "github.com/livekit/server-sdk-go"
-	openai "github.com/sashabaranov/go-openai"
 )
 
 type ActiveParticipant struct {
@@ -60,6 +64,10 @@ func NewLiveGPT(config *config.Config, sttClient *stt.Client, ttsClient *tts.Cli
 func (s *LiveGPT) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/webhook", s.webhookHandler)
+	mux.HandleFunc("/join/", s.joinHandler)
+	//mux.HandleFunc("/goroutines", func(writer http.ResponseWriter, request *http.Request) {
+	//	_ = pprof.Lookup("goroutine").WriteTo(writer, 2)
+	//})
 	mux.HandleFunc("/", s.healthCheckHandler)
 
 	n := negroni.New()
@@ -71,12 +79,14 @@ func (s *LiveGPT) Start() error {
 		Handler: n,
 	}
 
-	openaiKey, ok := os.LookupEnv("OPENAI_API_KEY")
-	if !ok {
-		return errors.New("OPENAI_API_KEY environment variable is not set")
+	if s.config.OpenAIAPIKey == "" {
+		s.config.OpenAIAPIKey = os.Getenv("OPENAI_API_KEY")
+	}
+	if s.config.OpenAIAPIKey == "" {
+		return errors.New("OpenAI API key not found. Please set OPENAI_API_KEY environment variable or set it in config.yaml")
 	}
 
-	s.gptClient = openai.NewClient(openaiKey)
+	s.gptClient = openai.NewClient(s.config.OpenAIAPIKey)
 
 	httpListener, err := net.Listen("tcp", s.httpServer.Addr)
 	if err != nil {
@@ -110,6 +120,90 @@ func (s *LiveGPT) Stop() {
 	<-s.closedChan
 }
 
+func (s *LiveGPT) joinRoom(room *livekit.Room) {
+	// If the GPT participant is not connected, connect it
+	s.lock.Lock()
+	if _, ok := s.participants[room.Sid]; ok {
+		s.lock.Unlock()
+		logger.Infow("gpt participant already connected",
+			"room", room.Name,
+			"participantCount", room.NumParticipants,
+		)
+		return
+	}
+
+	s.participants[room.Sid] = &ActiveParticipant{
+		Connecting: true,
+	}
+	s.lock.Unlock()
+
+	token := s.roomService.CreateToken().
+		SetIdentity(BotIdentity).
+		AddGrant(&auth.VideoGrant{
+			Room:     room.Name,
+			RoomJoin: true,
+		})
+
+	jwt, err := token.ToJWT()
+	if err != nil {
+		logger.Errorw("error creating jwt", err)
+		return
+	}
+
+	logger.Infow("connecting gpt participant", "room", room.Name)
+	p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, s.sttClient, s.ttsClient, s.gptClient)
+	if err != nil {
+		logger.Errorw("error connecting gpt participant", err, "room", room.Name)
+		s.lock.Lock()
+		delete(s.participants, room.Sid)
+		s.lock.Unlock()
+		return
+	}
+
+	s.lock.Lock()
+	s.participants[room.Sid] = &ActiveParticipant{
+		Connecting:  false,
+		Participant: p,
+	}
+	s.lock.Unlock()
+
+	p.OnDisconnected(func() {
+		logger.Infow("gpt participant disconnected", "room", room.Name)
+		s.lock.Lock()
+		delete(s.participants, room.Sid)
+		s.lock.Unlock()
+	})
+}
+
+func (s *LiveGPT) joinHandler(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	roomName := strings.TrimPrefix(req.URL.Path, "/join/")
+	listRes, err := s.roomService.ListRooms(req.Context(), &livekit.ListRoomsRequest{
+		Names: []string{
+			roomName,
+		},
+	})
+	if err != nil {
+		logger.Errorw("error listing rooms", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("error listing rooms"))
+		return
+	}
+
+	if len(listRes.Rooms) == 0 {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("room not found"))
+		return
+	}
+
+	s.joinRoom(listRes.Rooms[0])
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Success"))
+}
+
 func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 	event, err := webhook.ReceiveWebhookEvent(req, s.keyProvider)
 	if err != nil {
@@ -121,56 +215,7 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 		if event.Participant.Identity == BotIdentity {
 			return
 		}
-
-		// If the GPT participant is not connected, connect it
-		s.lock.Lock()
-		if _, ok := s.participants[event.Room.Sid]; ok {
-			s.lock.Unlock()
-			logger.Infow("gpt participant already connected", "room", event.Room.Name, "participantCount", event.Room.NumParticipants)
-			return
-		}
-
-		s.participants[event.Room.Sid] = &ActiveParticipant{
-			Connecting: true,
-		}
-		s.lock.Unlock()
-
-		token := s.roomService.CreateToken().
-			SetIdentity(BotIdentity).
-			AddGrant(&auth.VideoGrant{
-				Room:     event.Room.Name,
-				RoomJoin: true,
-			})
-
-		jwt, err := token.ToJWT()
-		if err != nil {
-			logger.Errorw("error creating jwt", err)
-			return
-		}
-
-		logger.Infow("connecting gpt participant", "room", event.Room.Name)
-		p, err := ConnectGPTParticipant(s.config.LiveKit.Url, jwt, s.sttClient, s.ttsClient, s.gptClient)
-		if err != nil {
-			logger.Errorw("error connecting gpt participant", err, "room", event.Room.Name)
-			s.lock.Lock()
-			delete(s.participants, event.Room.Sid)
-			s.lock.Unlock()
-			return
-		}
-
-		s.lock.Lock()
-		s.participants[event.Room.Sid] = &ActiveParticipant{
-			Connecting:  false,
-			Participant: p,
-		}
-		s.lock.Unlock()
-
-		p.OnDisconnected(func() {
-			logger.Infow("gpt participant disconnected", "room", event.Room.Name)
-			s.lock.Lock()
-			delete(s.participants, event.Room.Sid)
-			s.lock.Unlock()
-		})
+		s.joinRoom(event.Room)
 	}
 }
 

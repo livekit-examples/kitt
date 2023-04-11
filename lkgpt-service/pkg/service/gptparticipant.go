@@ -14,12 +14,13 @@ import (
 
 	stt "cloud.google.com/go/speech/apiv1"
 	tts "cloud.google.com/go/texttospeech/apiv1"
-	"github.com/livekit/protocol/livekit"
-	"github.com/livekit/protocol/logger"
-	lksdk "github.com/livekit/server-sdk-go"
 	"github.com/pion/webrtc/v3"
 	"github.com/sashabaranov/go-openai"
 	"golang.org/x/exp/slices"
+
+	"github.com/livekit/protocol/livekit"
+	"github.com/livekit/protocol/logger"
+	lksdk "github.com/livekit/server-sdk-go"
 )
 
 var (
@@ -294,6 +295,7 @@ func (p *GPTParticipant) activateParticipant(rp *lksdk.RemoteParticipant) {
 				p.lock.Unlock()
 				return
 			}
+			p.lock.Unlock()
 
 			time.Sleep(1 * time.Second)
 		}
