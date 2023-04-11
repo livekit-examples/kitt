@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { Box, Flex } from "@chakra-ui/react";
+import { useEffect, useRef, useState } from 'react';
+import { Box, Flex } from '@chakra-ui/react';
 
 export interface ConfigType {
   columnWidth: string;
@@ -21,9 +21,10 @@ export interface ConfigType {
 }
 
 interface SpeakerViewProps {
-  state: "talking" | "idle" | "thinking" | "activated";
+  state: 'talking' | 'idle' | 'thinking' | 'activated';
   volume: number;
   config: ConfigType;
+  participantCount?: number;
 }
 
 interface SoundColumnsProps {
@@ -40,20 +41,19 @@ const SoundColumn = (props: SoundColumnsProps) => {
         const center = Math.floor(props.count / 2.0);
         const distanceFromCenter = Math.abs(index - center);
         const maxVolumeDistance = Math.floor(props.volume * center);
-        const isOff =
-          distanceFromCenter > maxVolumeDistance || props.volume === 0;
+        const isOff = distanceFromCenter > maxVolumeDistance || props.volume === 0;
         const backgroundColor = isOff
           ? props.config.inactiveBackgroundColor
           : props.config.backgroundColor;
         const percentageFromCenter = distanceFromCenter / center;
         return (
           <Box
-            key={"row-" + index}
+            key={'row-' + index}
             width={props.config.columnWidth}
             height={props.config.barHeight}
             backgroundColor={backgroundColor}
             transition="background-color 0.1s ease-out"
-            boxShadow={isOff ? "none" : props.config.boxShadow}
+            boxShadow={isOff ? 'none' : props.config.boxShadow}
             opacity={isOff ? 1 : 1 - percentageFromCenter}
           ></Box>
         );
@@ -71,7 +71,7 @@ const SpeakingView = (props: SpeakerViewProps) => {
       {props.config.barCounts.map((count, idx) => {
         return (
           <SoundColumn
-            key={"sound-column-" + idx}
+            key={'sound-column-' + idx}
             count={count}
             volume={adjustedVolume}
             config={props.config}
@@ -83,25 +83,22 @@ const SpeakingView = (props: SpeakerViewProps) => {
 };
 
 const ThinkingView = ({ config }: { config: ConfigType }) => {
-  const [direction, setDirection] = useState<"left" | "right">("right");
+  const [direction, setDirection] = useState<'left' | 'right'>('right');
   const [lowerBound, setLowerBound] = useState(config.thinkingStartRange.start);
   const [upperBound, setUpperBound] = useState(config.thinkingStartRange.end);
 
   const adjustBounds = (
     bound: number,
     targetBound: number,
-    direction: "left" | "right",
-    elapsed: number
+    direction: 'left' | 'right',
+    elapsed: number,
   ) => {
     const { thinkingSpeed } = config;
-    const isAtBounds =
-      direction === "right" ? bound <= targetBound : bound >= targetBound;
+    const isAtBounds = direction === 'right' ? bound <= targetBound : bound >= targetBound;
 
     const adjustedSpeed = elapsed * thinkingSpeed;
 
-    return isAtBounds
-      ? bound + (direction === "right" ? adjustedSpeed : -adjustedSpeed)
-      : bound;
+    return isAtBounds ? bound + (direction === 'right' ? adjustedSpeed : -adjustedSpeed) : bound;
   };
 
   const lastFrameTime = useRef(performance.now());
@@ -116,19 +113,15 @@ const ThinkingView = ({ config }: { config: ConfigType }) => {
 
       const newLowerBound = adjustBounds(
         lowerBound,
-        direction === "right"
-          ? thinkingTargetRange.start
-          : thinkingStartRange.start,
+        direction === 'right' ? thinkingTargetRange.start : thinkingStartRange.start,
         direction,
-        elapsed
+        elapsed,
       );
       const newUpperBound = adjustBounds(
         upperBound,
-        direction === "right"
-          ? thinkingTargetRange.end
-          : thinkingStartRange.end,
+        direction === 'right' ? thinkingTargetRange.end : thinkingStartRange.end,
         direction,
-        elapsed
+        elapsed,
       );
 
       setLowerBound(newLowerBound);
@@ -138,7 +131,7 @@ const ThinkingView = ({ config }: { config: ConfigType }) => {
       const isAtHigherBounds = newUpperBound === upperBound;
 
       if (isAtHigherBounds && isAtLowerBounds) {
-        setDirection(direction === "right" ? "left" : "right");
+        setDirection(direction === 'right' ? 'left' : 'right');
       }
     });
     return () => cancelAnimationFrame(frame);
@@ -155,11 +148,11 @@ const ThinkingView = ({ config }: { config: ConfigType }) => {
         const visible = idx <= upperBound && idx >= lowerBound;
         return (
           <Box
-            key={"thinking-item" + idx}
+            key={'thinking-item' + idx}
             width={config.columnWidth}
             height={config.barHeight}
-            backgroundColor={visible ? config.backgroundColor : "transparent"}
-            boxShadow={visible ? config.boxShadow : "none"}
+            backgroundColor={visible ? config.backgroundColor : 'transparent'}
+            boxShadow={visible ? config.boxShadow : 'none'}
             transition="background-color 0.5s ease-out"
           />
         );
@@ -190,7 +183,7 @@ const PulsingLED = ({
       () => {
         setIsOn(true);
       },
-      hadFirstPulse ? duration * 1000 + 200 : 50
+      hadFirstPulse ? duration * 1000 + 200 : 50,
     );
 
     return () => clearTimeout(timeout);
@@ -218,7 +211,7 @@ const PulsingLED = ({
         backgroundColor: config.backgroundColor,
         transition: `opacity ${duration}s ${delay}s ease-in-out, box-shadow ${duration}s ${delay}s ease-in-out`,
         opacity: isOn ? targetOpacity : 0.0,
-        boxShadow: isOn ? config.boxShadow : "none",
+        boxShadow: isOn ? config.boxShadow : 'none',
       }}
     ></div>
   );
@@ -226,7 +219,7 @@ const PulsingLED = ({
 
 type AnimationValuesAtIndex = (
   index: number,
-  count: number
+  count: number,
 ) => { targetOpacity: number; delay: number };
 
 const IdleAndActivatedView = ({
@@ -239,7 +232,7 @@ const IdleAndActivatedView = ({
   duration: number;
 }) => {
   return (
-    <div style={{ display: "flex", gap: config.barGap }}>
+    <div style={{ display: 'flex', gap: config.barGap }}>
       {config.barCounts.map((key, idx) => {
         const values = animationValuesForIndex(idx, config.barCounts.length);
         return (
@@ -256,14 +249,31 @@ const IdleAndActivatedView = ({
   );
 };
 
+const HelperView = () => {
+  return (
+    <Box
+      position="absolute"
+      padding="0.5rem 0.75rem"
+      border="1px solid rgba(255, 255, 255, 0.15)"
+      fontSize="0.75rem"
+      color="rgba(255, 255, 255, 0.8)"
+      borderRadius="4px"
+      lineHeight="1.5em"
+      bottom="-100px"
+      textAlign="center"
+    >
+      For assistance, say &ldquo;Hey KITT&rdquo; and ask me a question.
+    </Box>
+  );
+};
+
 export const AIVisualizer = (props: SpeakerViewProps) => {
+  const [hasBeenActivated, setHasBeenActivated] = useState(false);
+  const [showHelperView, setShowHelperView] = useState(false);
   const activatedAnimationValues: AnimationValuesAtIndex = (index, count) => {
     return {
       targetOpacity:
-        1 -
-        (Math.abs(index - Math.floor(count / 2)) / Math.floor(count / 2.0)) *
-        0.75 +
-        0.25,
+        1 - (Math.abs(index - Math.floor(count / 2)) / Math.floor(count / 2.0)) * 0.75 + 0.25,
       delay: Math.abs(index - Math.floor(count / 2)) * 0.1,
     };
   };
@@ -276,10 +286,27 @@ export const AIVisualizer = (props: SpeakerViewProps) => {
     };
   };
 
+  useEffect(() => {
+    if (hasBeenActivated || !props.participantCount) {
+      return;
+    }
+
+    // Show helper view when there are multiple participants
+    // but KITT hasn't been activated
+    if (props.state === 'idle' && props.participantCount > 2 && !hasBeenActivated) {
+      setShowHelperView(true);
+    }
+
+    if (props.participantCount > 2 && props.state !== 'idle') {
+      setHasBeenActivated(true);
+      setShowHelperView(false);
+    }
+  }, [props.state, props.participantCount, hasBeenActivated, showHelperView]);
+
   let stateView;
-  if (props.state === "thinking") {
+  if (props.state === 'thinking') {
     stateView = <ThinkingView config={props.config} />;
-  } else if (props.state === "activated") {
+  } else if (props.state === 'activated') {
     stateView = (
       <IdleAndActivatedView
         key="active-view"
@@ -288,7 +315,7 @@ export const AIVisualizer = (props: SpeakerViewProps) => {
         duration={0.5}
       />
     );
-  } else if (props.state === "idle") {
+  } else if (props.state === 'idle') {
     stateView = (
       <IdleAndActivatedView
         key="active-view"
@@ -315,7 +342,7 @@ export const AIVisualizer = (props: SpeakerViewProps) => {
       >
         {stateView}
       </Box>
+      {showHelperView ? <HelperView /> : null}
     </Box>
   );
 };
-

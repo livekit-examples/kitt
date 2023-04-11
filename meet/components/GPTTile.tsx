@@ -102,6 +102,7 @@ export const GPTTile = ({ participant, ...htmlProps }: GPTTileProps) => {
           <AIVisualizer
             state={aiState[state]}
             volume={volume}
+            participantCount={participants.length}
             config={{
               columnWidth: '2.25rem',
               barHeight: '0.375rem',
