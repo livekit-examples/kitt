@@ -30,7 +30,7 @@ export const ErrorMessage = () => {
     return () => clearTimeout(timeout);
   }, [error]);
 
-  return visible && error ? (
+  return visible ? (
     <Box
       position="fixed"
       left="50%"

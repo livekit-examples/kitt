@@ -29,7 +29,7 @@ var (
 	BotIdentity = "KITT"
 
 	// Naive trigger/activation implementation
-	GreetingWords = []string{"hi", "hello", "hey", "hallo", "salut", "bonjour", "hola", "eh", "ey", "嘿", "你好", "やあ", "おい"}
+	GreetingWords = []string{"hi", "hello", "hey", "hallo", "salut", "bonjour", "hola", "eh", "ey"}
 	NameWords     = []string{"kit", "gpt", "kitt", "livekit", "live-kit"}
 
 	ActivationTimeout = 3 * time.Second // If the participant didn't say anything for this duration, stop listening
@@ -52,18 +52,6 @@ var (
 			Label:            "German",
 			TranscriberCode:  "de-DE",
 			SynthesizerModel: "de-DE-Wavenet-B",
-		},
-		"ja-JP": {
-			Code:             "ja-JP",
-			Label:            "Japanese",
-			TranscriberCode:  "ja-JP",
-			SynthesizerModel: "ja-JP-Wavenet-D",
-		},
-		"zh": {
-			Code:             "zh",
-			Label:            "Mandarin Chinese",
-			TranscriberCode:  "zh",
-			SynthesizerModel: "cmn-CN-Wavenet-C",
 		},
 		"es-ES": {
 			Code:             "es-ES",
@@ -485,20 +473,22 @@ func (p *GPTParticipant) answer(history []*Sentence, prompt *Sentence, rp *lksdk
 		}
 
 		// Try to parse the language from the sentence (ChatGPT can provide <en-US>, en-US as a prefix)
-		trimSentence := strings.TrimSpace(strings.ToLower(sentence))
+		trimSentence := strings.TrimSpace(sentence)
+		lowerSentence := strings.ToLower(trimSentence)
 		for code, lang := range Languages {
 			prefix1 := strings.ToLower(fmt.Sprintf("<%s>", code))
 			prefix2 := strings.ToLower(code)
 
-			if strings.HasPrefix(trimSentence, prefix1) {
-				sentence = sentence[len(prefix1):]
-			} else if strings.HasPrefix(trimSentence, prefix2) {
-				sentence = sentence[len(prefix2):]
+			if strings.HasPrefix(lowerSentence, prefix1) {
+				trimSentence = trimSentence[len(prefix1):]
+			} else if strings.HasPrefix(lowerSentence, prefix2) {
+				trimSentence = trimSentence[len(prefix2):]
 			} else {
 				continue
 			}
 
 			language = lang
+			break
 		}
 
 		sb.WriteString(trimSentence)
@@ -513,10 +503,10 @@ func (p *GPTParticipant) answer(history []*Sentence, prompt *Sentence, rp *lksdk
 			defer close(currentCh)
 			defer wg.Done()
 
-			logger.Debugw("synthesizing", "sentence", sentence)
-			resp, err := p.synthesizer.Synthesize(p.ctx, sentence, tmpLang)
+			logger.Debugw("synthesizing", "sentence", trimSentence)
+			resp, err := p.synthesizer.Synthesize(p.ctx, trimSentence, tmpLang)
 			if err != nil {
-				logger.Errorw("failed to synthesize", err, "sentence", sentence)
+				logger.Errorw("failed to synthesize", err, "sentence", trimSentence)
 				_ = p.sendErrorPacket("Sorry, an error occured while synthesizing voice data using Google TTS")
 				return
 			}
@@ -525,10 +515,10 @@ func (p *GPTParticipant) answer(history []*Sentence, prompt *Sentence, rp *lksdk
 				<-tmpLast // Reorder outputs
 			}
 
-			logger.Debugw("finished synthesizing, queuing sentence", "sentence", sentence)
+			logger.Debugw("finished synthesizing, queuing sentence", "sentence", trimSentence)
 			err = p.gptTrack.QueueReader(bytes.NewReader(resp.AudioContent))
 			if err != nil {
-				logger.Errorw("failed to queue reader", err, "sentence", sentence)
+				logger.Errorw("failed to queue reader", err, "sentence", trimSentence)
 				return
 			}
 
@@ -587,8 +577,7 @@ func (p *GPTParticipant) sendPacket(packet *packet) error {
 	if err != nil {
 		return err
 	}
-	err = p.room.LocalParticipant.PublishData(data, livekit.DataPacket_RELIABLE, []string{})
-	return err
+	return p.room.LocalParticipant.PublishData(data, livekit.DataPacket_RELIABLE, []string{})
 }
 
 func (p *GPTParticipant) sendStatePacket(state gptState) error {
