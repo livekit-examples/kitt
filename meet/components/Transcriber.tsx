@@ -38,7 +38,6 @@ export const Transcriber = () => {
 
     const timeout = setTimeout(() => {
       setTranscripts(new Map());
-
       setVisible(false);
     }, 5000);
 

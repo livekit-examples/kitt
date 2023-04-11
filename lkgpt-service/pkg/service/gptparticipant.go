@@ -97,13 +97,13 @@ type GPTParticipant struct {
 	synthesizer  *Synthesizer
 	completion   *ChatCompletion
 
-	isBusy atomic.Bool
-
 	lock           sync.Mutex
 	onDisconnected func()
 	conversation   []*Sentence
 
 	// Current active participant
+	isBusy            atomic.Bool
+	activeId          uint64
 	activeParticipant *lksdk.RemoteParticipant // If set, answer his next sentence/question
 	lastActivity      time.Time
 }
@@ -275,32 +275,33 @@ func (p *GPTParticipant) activateParticipant(rp *lksdk.RemoteParticipant) {
 	defer p.lock.Unlock()
 
 	if p.activeParticipant != rp {
+		p.activeId++
 		p.activeParticipant = rp
 		p.lastActivity = time.Now()
 		_ = p.sendStatePacket(state_Active)
+
+		tmpActiveId := p.activeId
+		go func() {
+			time.Sleep(ActivationTimeout)
+			for {
+				p.lock.Lock()
+				if p.activeId != tmpActiveId {
+					p.lock.Unlock()
+					return
+				}
+
+				if time.Since(p.lastActivity) >= ActivationTimeout {
+					p.activeParticipant = nil
+					_ = p.sendStatePacket(state_Idle)
+					p.lock.Unlock()
+					return
+				}
+
+				p.lock.Unlock()
+				time.Sleep(1 * time.Second)
+			}
+		}()
 	}
-
-	go func() {
-		time.Sleep(ActivationTimeout)
-		for {
-			p.lock.Lock()
-			if p.isBusy.Load() || p.activeParticipant != rp {
-				p.lock.Unlock()
-				return
-			}
-
-			if time.Since(p.lastActivity) >= ActivationTimeout {
-				p.activeParticipant = nil
-				_ = p.sendStatePacket(state_Idle)
-				p.lock.Unlock()
-				return
-			}
-			p.lock.Unlock()
-
-			time.Sleep(1 * time.Second)
-		}
-	}()
-
 }
 
 func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lksdk.RemoteParticipant, transcriber *Transcriber) {
