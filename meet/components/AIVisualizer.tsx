@@ -97,7 +97,7 @@ const ThinkingView = ({ config }: { config: ConfigType }) => {
     const isAtBounds =
       direction === "right" ? bound <= targetBound : bound >= targetBound;
 
-    const adjustedSpeed = elapsed ? thinkingSpeed / elapsed : thinkingSpeed;
+    const adjustedSpeed = elapsed * thinkingSpeed;
 
     return isAtBounds
       ? bound + (direction === "right" ? adjustedSpeed : -adjustedSpeed)
