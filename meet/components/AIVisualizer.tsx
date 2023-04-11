@@ -253,16 +253,14 @@ const HelperView = () => {
   return (
     <Box
       position="absolute"
-      padding="0.5rem 0.75rem"
-      border="1px solid rgba(255, 255, 255, 0.15)"
+      py="1rem"
       fontSize="0.75rem"
       color="rgba(255, 255, 255, 0.8)"
-      borderRadius="4px"
       lineHeight="1.5em"
-      bottom="-100px"
+      top="100%"
       textAlign="center"
     >
-      For assistance, say &ldquo;Hey KITT&rdquo; and ask me a question.
+      Say &ldquo;Hey KITT&rdquo; to ask me a question.
     </Box>
   );
 };
