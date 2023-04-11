@@ -24,28 +24,26 @@ func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prom
 	var sb strings.Builder
 	for _, s := range history {
 		if s.IsBot {
-			sb.WriteString(fmt.Sprintf("You (%s)", BotIdentity))
+			sb.WriteString(fmt.Sprintf("You: %s", s.Text))
 		} else {
-			sb.WriteString(s.ParticipantName)
+			sb.WriteString(fmt.Sprintf("%s: %s", s.ParticipantName, s.Text))
 		}
-
-		sb.WriteString(" said ")
-		sb.WriteString(s.Text)
 		sb.WriteString("\n\n")
 	}
 
 	conversation := sb.String()
+	prePrompt := "You are a voice assistant in a meeting named KITT. Keep your responses concise while still being friendly and personable. If your response is a question, please append a question mark symbol to the end of it."
+	
 	stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
 		Model: openai.GPT3Dot5Turbo,
 		Messages: []openai.ChatCompletionMessage{
 			{
 				Role: openai.ChatMessageRoleSystem,
-				Content: "You are a voice assistant in a meeting named KITT, make concise/short answers but friendly and personable." +
-					"Finish your requests or questions using a question mark (?). ",
+				Content: prePrompt,
 			},
 			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: "Here is the history of the conversation we just had:\n" + conversation,
+				Role:    openai.ChatMessageRoleSystem,
+				Content: "Here is the history of the conversation we've had thus far:\n" + conversation,
 			},
 			{
 				Role:    openai.ChatMessageRoleSystem,
