@@ -4,8 +4,8 @@ KITT is a ChatGPT-powered AI that lives in a WebRTC conference call.
 
 <img src="https://user-images.githubusercontent.com/8453967/231227021-4f5a4412-ff14-4837-97e7-c55a1d9717c4.gif" 
         alt="Preview gif" 
-        width="690" 
-        height="430" />
+        width="640" 
+        />
 
 ## Online Demo
 
