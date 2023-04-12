@@ -75,13 +75,6 @@ type ParticipantMetadata struct {
 	LanguageCode string `json:"languageCode,omitempty"`
 }
 
-// A sentence in the conversation (Used for the history)
-type Sentence struct {
-	ParticipantName string
-	IsBot           bool
-	Text            string
-}
-
 type GPTParticipant struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -99,7 +92,7 @@ type GPTParticipant struct {
 
 	lock           sync.Mutex
 	onDisconnected func()
-	conversation   []*Sentence
+	events         []*MeetingEvent
 
 	// Current active participant
 	isBusy            atomic.Bool
@@ -392,7 +385,7 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 	}
 
 	if shouldAnswer {
-		prompt := &Sentence{
+		prompt := &SpeechEvent{
 			ParticipantName: rp.Identity(),
 			IsBot:           false,
 			Text:            result.Text,
@@ -401,10 +394,11 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 		p.lock.Lock()
 
 		// Don't include the current prompt in the history when answering
-		history := make([]*Sentence, len(p.conversation))
-		copy(history, p.conversation)
-		p.conversation = append(p.conversation, prompt)
-
+		events := make([]*MeetingEvent, len(p.events))
+		copy(events, p.events)
+		p.events = append(p.events, &MeetingEvent{
+			Speech: prompt,
+		})
 		p.activeParticipant = nil
 		p.lock.Unlock()
 
@@ -414,7 +408,7 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 				_ = p.sendStatePacket(state_Loading)
 
 				logger.Debugw("answering to", "participant", rp.SID(), "text", result.Text)
-				answer, err := p.answer(history, prompt, rp, transcriber.Language()) // Will send state_Speaking
+				answer, err := p.answer(events, prompt, rp, transcriber.Language()) // Will send state_Speaking
 				if err != nil {
 					logger.Errorw("failed to answer", err, "participant", rp.SID(), "text", result.Text)
 					p.sendStatePacket(state_Idle)
@@ -430,14 +424,16 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 					p.sendStatePacket(state_Idle)
 				}
 
-				botAnswer := &Sentence{
+				botAnswer := &SpeechEvent{
 					ParticipantName: BotIdentity,
 					IsBot:           true,
 					Text:            answer,
 				}
 
 				p.lock.Lock()
-				p.conversation = append(p.conversation, botAnswer)
+				p.events = append(p.events, &MeetingEvent{
+					Speech: botAnswer,
+				})
 				p.lock.Unlock()
 			}()
 		}
@@ -445,8 +441,8 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 	}
 }
 
-func (p *GPTParticipant) answer(history []*Sentence, prompt *Sentence, rp *lksdk.RemoteParticipant, language *Language) (string, error) {
-	stream, err := p.completion.Complete(p.ctx, history, prompt, language)
+func (p *GPTParticipant) answer(events []*MeetingEvent, prompt *SpeechEvent, rp *lksdk.RemoteParticipant, language *Language) (string, error) {
+	stream, err := p.completion.Complete(p.ctx, events, prompt, rp, p.room, language)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			return "", nil

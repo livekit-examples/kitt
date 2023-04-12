@@ -5,10 +5,30 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/livekit/protocol/logger"
+	lksdk "github.com/livekit/server-sdk-go"
 	openai "github.com/sashabaranov/go-openai"
 )
+
+// A sentence in the conversation (Used for the history)
+type SpeechEvent struct {
+	ParticipantName string
+	IsBot           bool
+	Text            string
+}
+
+type JoinLeaveEvent struct {
+	Leave           bool
+	ParticipantName string
+	Time            time.Time
+}
+
+type MeetingEvent struct {
+	Speech *SpeechEvent
+	Join   *JoinLeaveEvent
+}
 
 type ChatCompletion struct {
 	client *openai.Client
@@ -20,43 +40,78 @@ func NewChatCompletion(client *openai.Client) *ChatCompletion {
 	}
 }
 
-func (c *ChatCompletion) Complete(ctx context.Context, history []*Sentence, prompt *Sentence, language *Language) (*ChatStream, error) {
+func (c *ChatCompletion) Complete(ctx context.Context, events []*MeetingEvent, prompt *SpeechEvent,
+	participant *lksdk.RemoteParticipant, room *lksdk.Room, language *Language) (*ChatStream, error) {
+
 	var sb strings.Builder
-	for _, s := range history {
-		if s.IsBot {
-			sb.WriteString(fmt.Sprintf("You (%s)", BotIdentity))
-		} else {
-			sb.WriteString(s.ParticipantName)
+	participants := room.GetParticipants()
+	for i, participant := range participants {
+		sb.WriteString(participant.Identity())
+		if i != len(participants)-1 {
+			sb.WriteString(", ")
+		}
+	}
+	participantNames := sb.String()
+	sb.Reset()
+
+	messages := make([]openai.ChatCompletionMessage, len(events)+3)
+	messages = append(messages, openai.ChatCompletionMessage{
+		Role: openai.ChatMessageRoleSystem,
+		Content: "You are KITT, a voice assistant in a meeting created by LiveKit." +
+			"Answer as concisely as possible but friendly and personable." +
+			"Finish your requests or questions using a question mark (?). " + // Used for auto-trigger
+			fmt.Sprintf("There are actually %s participants in the meeting: %s. ", len(participants), participantNames) +
+			fmt.Sprintf("Current language: %s Current date: %s", language.Label, time.Now().Format("January 2, 2006 3:04pm")),
+	})
+
+	for _, e := range events {
+		if e.Speech != nil {
+			if e.Speech.IsBot {
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleAssistant,
+					Content: e.Speech.Text,
+					Name:    BotIdentity,
+				})
+			} else {
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleUser,
+					Content: fmt.Sprintf("%s said %s", e.Speech.ParticipantName, e.Speech.Text),
+					Name:    e.Speech.ParticipantName,
+				})
+			}
 		}
 
-		sb.WriteString(" said ")
-		sb.WriteString(s.Text)
-		sb.WriteString("\n\n")
+		if e.Join != nil {
+			if e.Join.Leave {
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: fmt.Sprintf("%s left the meeting at %s", e.Join.ParticipantName, e.Join.Time.Format("3:04pm")),
+				})
+			} else {
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:    openai.ChatMessageRoleSystem,
+					Content: fmt.Sprintf("%s joined the meeting at %s", e.Join.ParticipantName, e.Join.Time.Format("3:04pm")),
+				})
+			}
+		}
 	}
 
-	conversation := sb.String()
+	messages = append(messages, openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleSystem,
+		Content: fmt.Sprintf("You are currently talking to %s", participant.Identity()),
+	})
+
+	// prompt
+	messages = append(messages, openai.ChatCompletionMessage{
+		Role:    openai.ChatMessageRoleUser,
+		Content: prompt.Text,
+		Name:    prompt.ParticipantName,
+	})
+
 	stream, err := c.client.CreateChatCompletionStream(ctx, openai.ChatCompletionRequest{
-		Model: openai.GPT3Dot5Turbo,
-		Messages: []openai.ChatCompletionMessage{
-			{
-				Role: openai.ChatMessageRoleSystem,
-				Content: "You are a voice assistant in a meeting named KITT, make concise/short answers but friendly and personable." +
-					"Finish your requests or questions using a question mark (?). ",
-			},
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: "Here is the history of the conversation we just had:\n" + conversation,
-			},
-			{
-				Role:    openai.ChatMessageRoleSystem,
-				Content: fmt.Sprintf("You are talking to %s, the current language is %s (%s)", prompt.ParticipantName, language.Label, language.Code),
-			},
-			{
-				Role:    openai.ChatMessageRoleUser,
-				Content: prompt.Text,
-			},
-		},
-		Stream: true,
+		Model:    openai.GPT3Dot5Turbo,
+		Messages: messages,
+		Stream:   true,
 	})
 
 	if err != nil {
