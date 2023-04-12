@@ -1,10 +1,12 @@
 import { Box, Text } from '@chakra-ui/react';
 import { useDataChannel } from '@livekit/components-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GPTState, Packet, PacketType, StatePacket, TranscriptPacket } from '../lib/packet';
 
 export const Transcriber = () => {
   const [visible, setVisible] = useState<boolean>(false);
+  const [activity, setActivity] = useState<number>(Date.now())
+  const [state, setState] = useState<GPTState>(GPTState.Idle);
   const [transcripts, setTranscripts] = useState<Map<string, string>>(new Map()); // transcription of every participant
 
   useDataChannel(undefined, (message) => {
@@ -15,6 +17,11 @@ export const Transcriber = () => {
       const sid = transcript.sid;
       const text = transcript.name + ': ' + transcript.text;
       setTranscripts(new Map(transcripts.set(sid, text)));
+      setActivity(Date.now())
+
+      if (state == GPTState.Active) {
+        setVisible(true);
+      }
 
       setTimeout(() => {
         if (sid == transcript.sid && transcript.text == transcripts.get(sid)) {
@@ -25,9 +32,20 @@ export const Transcriber = () => {
       }, 3000);
     } else if (packet.type == PacketType.State) {
       const statePacket = packet.data as StatePacket;
-      setVisible(statePacket.state == GPTState.Active);
+      setState(statePacket.state);
     }
   });
+
+  useEffect(() => {
+    const currentActivity = activity;
+    const timeout = setTimeout(() => {
+      if (currentActivity == activity) {
+        setVisible(false);
+      }
+    }, 3000);
+
+    return () => clearTimeout(timeout);
+  }, [activity]);
 
   return visible ? (
     <Box

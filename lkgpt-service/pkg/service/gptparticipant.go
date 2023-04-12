@@ -34,7 +34,7 @@ var (
 	NameWords     = []string{"kit", "gpt", "kitt", "livekit", "live-kit", "kid"}
 
 	ActivationWordsLen = 2
-	ActivationTimeout  = 5 * time.Second // If the participant didn't say anything for this duration, stop listening
+	ActivationTimeout  = 4 * time.Second // If the participant didn't say anything for this duration, stop listening
 
 	Languages = map[string]*Language{
 		"en-US": {
@@ -378,7 +378,7 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 
 		if result.IsFinal {
 			shouldAnswer = activeParticipant == rp
-			if (justActivated || p.activeInterim.Load()) && len(words) <= ActivationWordsLen {
+			if (justActivated || p.activeInterim.Load()) && len(words) <= ActivationWordsLen+1 {
 				// Ignore if the participant stopped speaking after the activation, answer his next sentence
 				shouldAnswer = false
 			}
@@ -438,7 +438,6 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 				p.lock.Unlock()
 			}()
 		}
-
 	}
 }
 

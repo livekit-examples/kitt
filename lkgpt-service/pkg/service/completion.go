@@ -60,7 +60,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, events []*MeetingEvent, p
 		Content: "You are KITT, a voice assistant in a meeting created by LiveKit. " +
 			"Keep your responses concise while still being friendly and personable. " +
 			"If your response is a question, please append a question mark symbol to the end of it. " + // Used for auto-trigger
-			fmt.Sprintf("There are actually %s participants in the meeting: %s. ", len(participants), participantNames) +
+			fmt.Sprintf("There are actually %d participants in the meeting: %s. ", len(participants), participantNames) +
 			fmt.Sprintf("Current language: %s Current date: %s", language.Label, time.Now().Format("January 2, 2006 3:04pm")),
 	})
 
