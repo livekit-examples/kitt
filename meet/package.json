@@ -13,7 +13,7 @@
     "@emotion/memoize": "0.8.0",
     "@emotion/react": "11.10.6",
     "@emotion/styled": "11.10.6",
-    "@livekit/components-react": "0.7.0",
+    "@livekit/components-react": "0.7.1",
     "@livekit/components-styles": "0.2.1",
     "framer-motion": "10.9.2",
     "livekit-client": "1.7.1",

@@ -33,7 +33,8 @@ var (
 	GreetingWords = []string{"hi", "hello", "hey", "hallo", "salut", "bonjour", "hola", "eh", "ey"}
 	NameWords     = []string{"kit", "gpt", "kitt", "livekit", "live-kit", "kid"}
 
-	ActivationTimeout = 3 * time.Second // If the participant didn't say anything for this duration, stop listening
+	ActivationWordsLen = 2
+	ActivationTimeout  = 5 * time.Second // If the participant didn't say anything for this duration, stop listening
 
 	Languages = map[string]*Language{
 		"en-US": {
@@ -96,6 +97,7 @@ type GPTParticipant struct {
 
 	// Current active participant
 	isBusy            atomic.Bool
+	activeInterim     atomic.Bool // True when KITT has been activated using an interim result
 	activeId          uint64
 	activeParticipant *lksdk.RemoteParticipant // If set, answer his next sentence/question
 	lastActivity      time.Time
@@ -343,8 +345,8 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 		words := strings.Split(strings.ToLower(strings.TrimSpace(result.Text)), " ")
 		if len(words) >= 2 { // No max length but only check the first 3 words
 			limit := len(words)
-			if limit > 3 {
-				limit = 3
+			if limit > ActivationWordsLen {
+				limit = ActivationWordsLen
 			}
 			activationWords := words[:limit]
 
@@ -365,9 +367,9 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 
 			if greetIndex < nameIndex && greetIndex != -1 {
 				justActivated = true
+				p.activeInterim.Store(!result.IsFinal)
 				if activeParticipant != rp {
 					activeParticipant = rp
-
 					logger.Debugw("activating KITT for participant", "activationText", strings.Join(activationWords, " "), "participant", rp.Identity())
 					p.activateParticipant(rp)
 				}
@@ -376,9 +378,8 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 
 		if result.IsFinal {
 			shouldAnswer = activeParticipant == rp
-			if justActivated && len(words) <= 3 {
-				// Ignore if the participant stopped speaking after the activation
-				// Answer his next sentence
+			if (justActivated || p.activeInterim.Load()) && len(words) <= ActivationWordsLen {
+				// Ignore if the participant stopped speaking after the activation, answer his next sentence
 				shouldAnswer = false
 			}
 		}

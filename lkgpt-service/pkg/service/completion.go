@@ -54,7 +54,7 @@ func (c *ChatCompletion) Complete(ctx context.Context, events []*MeetingEvent, p
 	participantNames := sb.String()
 	sb.Reset()
 
-	messages := make([]openai.ChatCompletionMessage, len(events)+3)
+	messages := make([]openai.ChatCompletionMessage, 0, len(events)+3)
 	messages = append(messages, openai.ChatCompletionMessage{
 		Role: openai.ChatMessageRoleSystem,
 		Content: "You are KITT, a voice assistant in a meeting created by LiveKit." +

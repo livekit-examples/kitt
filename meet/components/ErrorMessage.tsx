@@ -4,20 +4,17 @@ import { useEffect, useState } from "react";
 import { ErrorPacket, Packet, PacketType } from "../lib/packet";
 
 export const ErrorMessage = () => {
-  const { message } = useDataChannel();
   const [visible, setVisible] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
 
-  useEffect(() => {
-    if (!message) return;
-
+  useDataChannel(undefined, (message) => {
     const decoder = new TextDecoder();
     const packet = JSON.parse(decoder.decode(message.payload)) as Packet;
     if (packet.type == PacketType.Error) {
       const errorPacket = packet.data as ErrorPacket;
       setError(errorPacket.message);
     }
-  }, [message]);
+  });
 
   useEffect(() => {
     if (!error) return;
@@ -25,7 +22,7 @@ export const ErrorMessage = () => {
     setVisible(true);
     const timeout = setTimeout(() => {
       setVisible(false);
-    }, 5000);
+    }, 4000);
 
     return () => clearTimeout(timeout);
   }, [error]);

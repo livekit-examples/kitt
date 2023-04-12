@@ -1,48 +1,33 @@
 import { Box, Text } from '@chakra-ui/react';
 import { useDataChannel } from '@livekit/components-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { GPTState, Packet, PacketType, StatePacket, TranscriptPacket } from '../lib/packet';
 
 export const Transcriber = () => {
-  const { message } = useDataChannel();
   const [visible, setVisible] = useState<boolean>(false);
+  const [transcripts, setTranscripts] = useState<Map<string, string>>(new Map()); // transcription of every participant
 
-  const [statePacket, setStatePacket] = useState<StatePacket>();
-  const [transcriptPacket, setTranscriptPacket] = useState<TranscriptPacket>();
-
-  // Transcription of every participant in the room
-  const [transcripts, setTranscripts] = useState<Map<string, string>>(new Map());
-
-  useEffect(() => {
-    if (!message) return;
-
+  useDataChannel(undefined, (message) => {
     const decoder = new TextDecoder();
     const packet = JSON.parse(decoder.decode(message.payload)) as Packet;
     if (packet.type == PacketType.Transcript) {
-      setTranscriptPacket(packet.data as TranscriptPacket);
+      const transcript = packet.data as TranscriptPacket;
+      const sid = transcript.sid;
+      const text = transcript.name + ': ' + transcript.text;
+      setTranscripts(new Map(transcripts.set(sid, text)));
+
+      setTimeout(() => {
+        if (sid == transcript.sid && transcript.text == transcripts.get(sid)) {
+          // Reset participant words
+          transcripts.delete(transcript.sid);
+          setTranscripts(new Map(transcripts));
+        }
+      }, 3000);
     } else if (packet.type == PacketType.State) {
-      setStatePacket(packet.data as StatePacket);
+      const statePacket = packet.data as StatePacket;
+      setVisible(statePacket.state == GPTState.Active);
     }
-  }, [message]);
-
-  useEffect(() => {
-    if (!transcriptPacket) return;
-
-    setTranscripts(
-      new Map(
-        transcripts.set(transcriptPacket.sid, transcriptPacket.name + ': ' + transcriptPacket.text),
-      ),
-    );
-
-    if (statePacket?.state == GPTState.Active) setVisible(true);
-
-    const timeout = setTimeout(() => {
-      setTranscripts(new Map());
-      setVisible(false);
-    }, 5000);
-
-    return () => clearTimeout(timeout);
-  }, [transcriptPacket, statePacket]);
+  });
 
   return visible ? (
     <Box
