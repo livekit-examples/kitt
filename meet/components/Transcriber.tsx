@@ -22,14 +22,6 @@ export const Transcriber = () => {
       if (state == GPTState.Active) {
         setVisible(true);
       }
-
-      setTimeout(() => {
-        if (sid == transcript.sid && transcript.text == transcripts.get(sid)) {
-          // Reset participant words
-          transcripts.delete(transcript.sid);
-          setTranscripts(new Map(transcripts));
-        }
-      }, 3000);
     } else if (packet.type == PacketType.State) {
       const statePacket = packet.data as StatePacket;
       setState(statePacket.state);
@@ -41,6 +33,7 @@ export const Transcriber = () => {
     const timeout = setTimeout(() => {
       if (currentActivity == activity) {
         setVisible(false);
+        setTranscripts(new Map());
       }
     }, 3000);
 
