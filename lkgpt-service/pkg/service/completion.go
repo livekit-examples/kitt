@@ -57,9 +57,9 @@ func (c *ChatCompletion) Complete(ctx context.Context, events []*MeetingEvent, p
 	messages := make([]openai.ChatCompletionMessage, 0, len(events)+3)
 	messages = append(messages, openai.ChatCompletionMessage{
 		Role: openai.ChatMessageRoleSystem,
-		Content: "You are KITT, a voice assistant in a meeting created by LiveKit." +
-			"Answer as concisely as possible but friendly and personable." +
-			"Finish your requests or questions using a question mark (?). " + // Used for auto-trigger
+		Content: "You are KITT, a voice assistant in a meeting created by LiveKit. " +
+			"Keep your responses concise while still being friendly and personable. " +
+			"If your response is a question, please append a question mark symbol to the end of it. " + // Used for auto-trigger
 			fmt.Sprintf("There are actually %s participants in the meeting: %s. ", len(participants), participantNames) +
 			fmt.Sprintf("Current language: %s Current date: %s", language.Label, time.Now().Format("January 2, 2006 3:04pm")),
 	})
