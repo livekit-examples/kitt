@@ -156,6 +156,7 @@ func (p *GPTParticipant) OnDisconnected(f func()) {
 }
 
 func (p *GPTParticipant) Disconnect() {
+	logger.Infow("disconnecting gpt participant", "room", p.room.Name())
 	p.room.Disconnect()
 
 	for _, transcriber := range p.transcribers {
@@ -165,10 +166,12 @@ func (p *GPTParticipant) Disconnect() {
 	p.cancel()
 
 	p.lock.Lock()
-	if p.onDisconnected != nil {
-		p.onDisconnected()
-	}
+	onDisconnected := p.onDisconnected
 	p.lock.Unlock()
+
+	if onDisconnected != nil {
+		onDisconnected()
+	}
 }
 
 func (p *GPTParticipant) trackPublished(publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
@@ -242,12 +245,13 @@ func (p *GPTParticipant) trackSubscribed(track *webrtc.TrackRemote, publication 
 
 func (p *GPTParticipant) trackUnsubscribed(track *webrtc.TrackRemote, publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
 	p.lock.Lock()
-	defer p.lock.Unlock()
-
 	if transcriber, ok := p.transcribers[rp.SID()]; ok {
+		p.lock.Unlock()
 		transcriber.Close()
+		p.lock.Lock()
 		delete(p.transcribers, rp.SID())
 	}
+	p.lock.Unlock()
 }
 
 func (p *GPTParticipant) participantDisconnected(rp *lksdk.RemoteParticipant) {
