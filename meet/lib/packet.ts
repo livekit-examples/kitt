@@ -8,7 +8,7 @@ export enum GPTState {
   Idle = 0,
   Loading,
   Speaking,
-  Active
+  Active,
 }
 
 export interface Packet {

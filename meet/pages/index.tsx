@@ -11,9 +11,7 @@ const Home = () => {
     router.push(`/rooms/${generateRoomId()}`);
   });
 
-  return (
-    <></>
-  );
+  return <></>;
 };
 
 export default Home;

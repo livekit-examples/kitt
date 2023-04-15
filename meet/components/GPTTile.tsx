@@ -10,11 +10,12 @@ import {
   useParticipantTile,
 } from '@livekit/components-react';
 import { Participant, Track } from 'livekit-client';
-import React from 'react';
+import React, { useCallback } from 'react';
 import { useEffect } from 'react';
 import { Box } from '@chakra-ui/react';
 import { GPTState, Packet, PacketType, StatePacket } from '../lib/packet';
 import { AIVisualizer } from './AIVisualizer';
+import type { ReceivedDataMessage } from '@livekit/components-core';
 
 export type GPTTileProps = React.HTMLAttributes<HTMLDivElement> & {
   participant?: Participant;
@@ -29,18 +30,19 @@ export const GPTTile = ({ participant, ...htmlProps }: GPTTileProps) => {
   const activateSoundRef = React.useRef<HTMLAudioElement>(null);
   const p = useEnsureParticipant(participant);
 
-  useDataChannel(undefined, (message) => {
+  const onData = useCallback((message: ReceivedDataMessage) => {
     const packet = JSON.parse(decoder.decode(message.payload)) as Packet;
 
     if (packet.type == PacketType.State) {
       const statePacket = packet.data as StatePacket;
       setState(statePacket.state);
 
-      if (statePacket.state == GPTState.Active && participants.length > 2) {
+      if (statePacket.state == GPTState.Active && participants.length > 2)
         activateSoundRef.current?.play();
-      }
     }
-  });
+  }, []);
+
+  useDataChannel(undefined, onData);
 
   const tile = useParticipantTile({
     participant: p,

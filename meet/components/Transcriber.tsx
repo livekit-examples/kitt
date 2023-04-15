@@ -1,15 +1,16 @@
 import { Box, Text } from '@chakra-ui/react';
 import { useDataChannel } from '@livekit/components-react';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { GPTState, Packet, PacketType, StatePacket, TranscriptPacket } from '../lib/packet';
+import type { ReceivedDataMessage } from '@livekit/components-core';
 
 export const Transcriber = () => {
   const [visible, setVisible] = useState<boolean>(false);
-  const [activity, setActivity] = useState<number>(Date.now())
+  const [activity, setActivity] = useState<number>(Date.now());
   const [state, setState] = useState<GPTState>(GPTState.Idle);
   const [transcripts, setTranscripts] = useState<Map<string, string>>(new Map()); // transcription of every participant
 
-  useDataChannel(undefined, (message) => {
+  const onData = useCallback((message: ReceivedDataMessage) => {
     const decoder = new TextDecoder();
     const packet = JSON.parse(decoder.decode(message.payload)) as Packet;
     if (packet.type == PacketType.Transcript) {
@@ -17,7 +18,7 @@ export const Transcriber = () => {
       const sid = transcript.sid;
       const text = transcript.name + ': ' + transcript.text;
       setTranscripts(new Map(transcripts.set(sid, text)));
-      setActivity(Date.now())
+      setActivity(Date.now());
 
       if (state == GPTState.Active) {
         setVisible(true);
@@ -26,7 +27,9 @@ export const Transcriber = () => {
       const statePacket = packet.data as StatePacket;
       setState(statePacket.state);
     }
-  });
+  }, []);
+
+  useDataChannel(undefined, onData);
 
   useEffect(() => {
     const currentActivity = activity;

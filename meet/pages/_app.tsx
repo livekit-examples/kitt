@@ -4,9 +4,7 @@ import '@livekit/components-styles';
 import '@livekit/components-styles/prefabs';
 
 function MyApp({ Component, pageProps }: AppProps) {
-  return (
-    <Component {...pageProps} />
-  );
+  return <Component {...pageProps} />;
 }
 
 export default MyApp;
