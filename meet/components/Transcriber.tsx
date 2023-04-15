@@ -27,7 +27,7 @@ export const Transcriber = () => {
       const statePacket = packet.data as StatePacket;
       setState(statePacket.state);
     }
-  }, []);
+  }, [state]);
 
   useDataChannel(undefined, onData);
 
