@@ -145,11 +145,12 @@ func ConnectGPTParticipant(url, token string, sttClient *stt.Client, ttsClient *
 	p.gptTrack = track
 	p.room = room
 
-	if len(room.GetParticipants()) == 0 {
-		defer func() {
-			go p.Disconnect()
-		}()
-	}
+	go func() {
+		time.Sleep(5 * time.Second)
+		if len(room.GetParticipants()) == 0 {
+			p.Disconnect()
+		}
+	}()
 
 	return p, nil
 }
