@@ -146,6 +146,8 @@ func ConnectGPTParticipant(url, token string, sttClient *stt.Client, ttsClient *
 	p.room = room
 
 	go func() {
+		// Check if there's no participant when KITT joins.
+		// It can happen when the participant who created the room directly leaves.
 		time.Sleep(5 * time.Second)
 		if len(room.GetParticipants()) == 0 {
 			p.Disconnect()
