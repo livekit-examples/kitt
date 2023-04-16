@@ -145,6 +145,12 @@ func ConnectGPTParticipant(url, token string, sttClient *stt.Client, ttsClient *
 	p.gptTrack = track
 	p.room = room
 
+	if len(room.GetParticipants()) == 0 {
+		defer func() {
+			go p.Disconnect()
+		}()
+	}
+
 	return p, nil
 }
 
@@ -175,7 +181,7 @@ func (p *GPTParticipant) Disconnect() {
 }
 
 func (p *GPTParticipant) trackPublished(publication *lksdk.RemoteTrackPublication, rp *lksdk.RemoteParticipant) {
-	if publication.Source() != livekit.TrackSource_MICROPHONE || rp.Identity() == BotIdentity {
+	if publication.Source() != livekit.TrackSource_MICROPHONE {
 		return
 	}
 
@@ -257,8 +263,7 @@ func (p *GPTParticipant) trackUnsubscribed(track *webrtc.TrackRemote, publicatio
 func (p *GPTParticipant) participantDisconnected(rp *lksdk.RemoteParticipant) {
 	participants := p.room.GetParticipants()
 	logger.Debugw("participant disconnected", "numParticipants", len(participants))
-	// TODO(theomonnom) This should be 0?
-	if len(participants) <= 1 {
+	if len(participants) == 0 {
 		p.Disconnect()
 	}
 }
@@ -335,7 +340,7 @@ func (p *GPTParticipant) onTranscriptionReceived(result RecognizeResult, rp *lks
 	p.lock.Unlock()
 
 	shouldAnswer := false
-	if len(p.room.GetParticipants()) == 2 {
+	if len(p.room.GetParticipants()) == 1 {
 		// Always answer when we're alone with KITT
 		if activeParticipant == nil {
 			activeParticipant = rp
