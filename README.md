@@ -30,6 +30,7 @@ The following diagram illustrates this:
 - `GOOGLE_APPLICATION_CREDENTIALS` json body from a Google cloud account. See <https://cloud.google.com/docs/authentication/application-default-credentials#GAC>
 - OpenAI api key
 - LiveKit api_key, api_secret, and url from [LiveKit Cloud](https://cloud.livekit.io)
+- Go 1.19+ and Node.js
 
 ### Running Locally
 
