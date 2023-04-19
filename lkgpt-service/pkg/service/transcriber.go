@@ -220,9 +220,9 @@ func (t *Transcriber) start() error {
 
 func (t *Transcriber) Close() {
 	t.cancel()
-	<-t.closeCh
 	t.oggReader.Close()
 	t.oggWriter.Close()
+	<-t.closeCh
 	close(t.results)
 }
 
