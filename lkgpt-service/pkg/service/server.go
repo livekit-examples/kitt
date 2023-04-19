@@ -49,7 +49,7 @@ type LiveGPT struct {
 }
 
 func NewLiveGPT(config *config.Config, sttClient *stt.Client, ttsClient *tts.Client) *LiveGPT {
-	logger.Infow("api_key", config.LiveKit.ApiKey)
+	logger.Infow("api_key", "key", config.LiveKit.ApiKey)
 	return &LiveGPT{
 		config:       config,
 		roomService:  lksdk.NewRoomServiceClient(config.LiveKit.Url, config.LiveKit.ApiKey, config.LiveKit.SecretKey),
