@@ -49,6 +49,7 @@ type LiveGPT struct {
 }
 
 func NewLiveGPT(config *config.Config, sttClient *stt.Client, ttsClient *tts.Client) *LiveGPT {
+	logger.Infow("api_key", config.LiveKit.ApiKey)
 	return &LiveGPT{
 		config:       config,
 		roomService:  lksdk.NewRoomServiceClient(config.LiveKit.Url, config.LiveKit.ApiKey, config.LiveKit.SecretKey),
@@ -208,6 +209,15 @@ func (s *LiveGPT) webhookHandler(w http.ResponseWriter, req *http.Request) {
 	event, err := webhook.ReceiveWebhookEvent(req, s.keyProvider)
 	if err != nil {
 		logger.Errorw("error receiving webhook event", err)
+
+		// Debug APIKey
+		authToken := req.Header.Get("Authorization")
+		if authToken != "" {
+			v, err := auth.ParseAPIToken(authToken)
+			if err == nil {
+				logger.Infow("failed to join with", "apikey", v.APIKey(), "identity", v.Identity())
+			}
+		}
 		return
 	}
 
