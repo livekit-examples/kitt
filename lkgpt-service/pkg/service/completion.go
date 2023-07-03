@@ -141,6 +141,10 @@ func (c *ChatStream) Recv() (string, error) {
 			return "", err
 		}
 
+		if len(response.Choices) == 0 {
+			continue
+		}
+
 		delta := response.Choices[0].Delta.Content
 		sb.WriteString(delta)
 
