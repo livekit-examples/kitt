@@ -36,7 +36,7 @@ The following diagram illustrates this:
 
 To run locally, you'll need to run the two services in this repo: `meet` and `lkgt-service`.
 
-#### Running Meet Locally:
+#### Running Meet Locally
 
 In the `meet/` directory, copy `.env.example` to `.env.local` and fill in your LiveKit connection details. Then run:
 
@@ -44,7 +44,7 @@ In the `meet/` directory, copy `.env.example` to `.env.local` and fill in your L
 yarn install && yarn dev
 ```
 
-#### Running lkgpt-service Locally:
+#### Running lkgpt-service Locally
 
 In the `lkgpt-service/` directory, copy `config-sample.yaml` to `config.yaml` and fill in your LiveKit connection details and OpenAI API key. Then run:
 
