@@ -41,7 +41,7 @@ Running Meet Locally:
 In the `meet/` directory, copy `.env.example` to `.env.local` and fill in your LiveKit connection details. Then run:
 
 ```bash
-yarn dev
+yarn install && yarn dev
 ```
 
 Running lkgpt-service Locally:
