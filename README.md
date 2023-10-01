@@ -52,9 +52,8 @@ In the `lkgpt-service/` directory, run:
 go run /cmd/server/main.go --config config.yaml --gcp-credentials-path gcp-credentials.json
 ```
 
-Once both services are running you can navigate to <http://localhost:3000>. There's one more step needed when running locally. When deployed, KITT is spawned via a LiveKit webhook, but locally - the webhook will have no way of reaching your local `lkgpt-service` that's running. So you'll have to manually call an API to spawn KITT:
+Once both services are running you can navigate to <http://localhost:3000>. There's one more step needed when running locally. When deployed, KITT is spawned via a LiveKit webhook, but locally - the webhook will have no way of reaching your local `lkgpt-service` that's running. So you'll have to manually call an API to spawn KITT, using `room_name` from the url slug when you enter a room in the Meet UI.
 
 ```bash
-# <room_name> comes from the url slug when you enter a room in the UI
 curl -XPOST http://localhost:3001/join/<room_name>
 ```
